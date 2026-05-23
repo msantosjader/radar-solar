@@ -4,13 +4,12 @@ from nicegui import ui
 
 
 FIREBASE_WEB_CONFIG = {
-    'apiKey': 'AIzaSyAvJoUnooscJ5ttBiiuhBPvRt5nnkAcDck',
-    'authDomain': 'radar-solar-dev.firebaseapp.com',
-    'projectId': 'radar-solar-dev',
-    'storageBucket': 'radar-solar-dev.firebasestorage.app',
-    'messagingSenderId': '749336304422',
-    'appId': '1:749336304422:web:809a13e8ef419800f57fe7',
-    'measurementId': 'G-SGBJTT72Q2',
+    'apiKey': 'AIzaSyDgkl4pYfaJCRQ9ploX3L3CsLx0hP0B-3k',
+    'authDomain': 'p1g4-radar-solar-dev.firebaseapp.com',
+    'projectId': 'p1g4-radar-solar-dev',
+    'storageBucket': 'p1g4-radar-solar-dev.firebasestorage.app',
+    'messagingSenderId': '125328174538',
+    'appId': '1:125328174538:web:156a0f6329ff1082eaf333',
 }
 
 
