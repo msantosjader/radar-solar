@@ -1,10 +1,11 @@
 from nicegui import ui
 
-from src.ui.pages.public import inject_public_styles
+from src.ui.pages.public import inject_firebase_auth, inject_public_styles
 
 
 def render_login(selected_profile: str = 'customer'):
     inject_public_styles()
+    inject_firebase_auth()
 
     profiles = {
         'customer': {
@@ -84,9 +85,26 @@ def render_login(selected_profile: str = 'customer'):
                         'text-sm text-slate-500 leading-6'
                     )
 
-                action = ui.button('', on_click=lambda: ui.notify(
-                    f"Magic link em preparação para o perfil: {profiles[active_profile['value']]['title']}"
-                )).classes('w-full py-3 text-base font-semibold rounded-xl rs-button-soft')
+                async def send_magic_link() -> None:
+                    current_email = (email.value or '').strip()
+                    if not current_email:
+                        ui.notify('Informe o e-mail para receber o link.', type='warning')
+                        return
+
+                    result = await ui.run_javascript(
+                        (
+                            '(async () => {'
+                            f'  return await window.radarSolarAuth.sendMagicLink({current_email!r}, {active_profile["value"]!r});'
+                            '})()'
+                        ),
+                        timeout=60,
+                    )
+                    if result and result.get('ok'):
+                        ui.notify('Link de acesso enviado. Verifique seu e-mail.', type='positive')
+                    else:
+                        ui.notify(result.get('error', 'Nao foi possivel enviar o magic link.'), type='negative')
+
+                action = ui.button('', on_click=send_magic_link).classes('w-full py-3 text-base font-semibold rounded-xl rs-button-soft')
                 ui.link('Voltar para a página inicial', '/').classes('text-sm text-slate-500')
 
     def set_profile(profile_key: str) -> None:
