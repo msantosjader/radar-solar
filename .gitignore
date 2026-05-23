@@ -12,6 +12,7 @@ __pycache__/
 # Ignorar pastas de configuração de editores (PyCharm, VS Code, etc.)
 .idea/
 .vscode/
+.nicegui/
 
 # ----------------------------------------------------------------------
 # 3. DADOS, BANCO DE DADOS E ARQUIVOS PESADOS
