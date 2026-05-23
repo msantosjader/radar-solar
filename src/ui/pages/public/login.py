@@ -61,7 +61,7 @@ def render_login(selected_profile: str = 'customer'):
                     helper = ui.label('').classes('rs-login-helper text-sm text-slate-500 leading-6')
 
                 with ui.column().classes('rounded-2xl bg-white/80 p-5 gap-4 border border-white/70'):
-                    ui.label('1. Escolha o perfil').classes('text-sm font-semibold text-slate-500')
+                    ui.label('Escolha o perfil').classes('text-sm font-semibold text-slate-500')
                     with ui.row().classes('rs-login-tabs'):
                         for key, data in profiles.items():
                             with ui.card().classes(
@@ -75,10 +75,7 @@ def render_login(selected_profile: str = 'customer'):
                                     ui.label(data['title']).classes('text-lg font-bold text-slate-900')
                                 ui.label(data['helper']).classes('text-sm text-slate-600 leading-6')
                                 tab.on('click', lambda _=None, key=key: set_profile(key))
-                    selected_profile_text = ui.label('').classes('rs-login-selected text-lg font-bold text-slate-900')
-                    ui.label('2. Informe o e-mail para receber o link de acesso').classes(
-                        'text-sm font-semibold text-slate-500 pt-1'
-                    )
+                    ui.label('Informe o e-mail para receber o link de acesso').classes('text-sm font-semibold text-slate-500 pt-1')
                     email = ui.input('').classes('w-full')
                     email.props('outlined')
                     ui.label('Você receberá um link seguro para entrar sem senha.').classes(
@@ -114,7 +111,6 @@ def render_login(selected_profile: str = 'customer'):
         title.set_text(current['title'])
         subtitle.set_text(current['subtitle'])
         helper.set_text(current['helper'])
-        selected_profile_text.set_text(current['title'])
         email.label = current['input_label']
         action.set_text(current['button'])
         action.props(f"unelevated color={current['accent']}")
