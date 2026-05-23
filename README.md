@@ -39,3 +39,8 @@ radar-solar/
             └── empresa/    
                 ├── kanban.py      # RF06 - Funil de Vendas B2B (Gestão de Leads)
                 └── mapa.py        # RF02 - Mapa de Calor (Integração de Dados ANEEL)
+
+```
+
+### Diagrama Entidade-Relacionamento (DER)
+![Diagrama do Banco de Dados](docs/der_radarsolar.png)
