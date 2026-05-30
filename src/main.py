@@ -82,7 +82,7 @@ def cliente_faturas():
         return
     apply_theme()
     render_private_shell(auth, '/cliente/faturas', 'Faturas', 'Insercao e historico de contas de energia.')
-    render_faturas()
+    render_faturas(auth)
 
 
 @ui.page('/empresa/mapa')
