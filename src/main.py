@@ -70,7 +70,7 @@ def cliente_dashboard():
         return
     apply_theme()
     render_private_shell(auth, '/cliente/dashboard', 'Dashboard do gerador', 'Acompanhamento da usina e dos creditos.')
-    render_dashboard()
+    render_dashboard(auth)
 
 
 @ui.page('/cliente/faturas')
