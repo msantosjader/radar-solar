@@ -82,6 +82,26 @@ def _obter_fatura_do_usuario(usuario_id: int, fatura_id: int) -> Fatura | None:
     )
 
 
+def _usuario_ja_tem_fatura_na_competencia(
+    usuario_id: int,
+    mes_referencia: str,
+    fatura_id_ignorar: int | None = None,
+) -> bool:
+    query = (
+        Fatura.select()
+        .join(InstalacaoSolar)
+        .where(
+            (InstalacaoSolar.usuario == usuario_id)
+            & (Fatura.mes_referencia == mes_referencia)
+        )
+    )
+
+    if fatura_id_ignorar:
+        query = query.where(Fatura.id != fatura_id_ignorar)
+
+    return query.exists()
+
+
 def render_faturas(auth: dict) -> None:
     usuario = Usuario.get_or_none(Usuario.id == auth.get('usuario_id'))
 
@@ -224,6 +244,10 @@ def render_faturas(auth: dict) -> None:
                     }
                 except ValueError as exc:
                     ui.notify(str(exc), color='negative')
+                    return
+
+                if _usuario_ja_tem_fatura_na_competencia(usuario.id, mes, state['edit_id']):
+                    ui.notify('Ja existe uma fatura cadastrada para essa competencia.', color='warning')
                     return
 
                 if state['edit_id']:
