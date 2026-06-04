@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -163,7 +164,7 @@ def _gerar_dados_grafico(faturas: list[Fatura], limite: int = 6) -> tuple[list[s
     return labels, consumo, injecao, geracao
 
 
-def render_dashboard(auth: dict) -> None:
+def render_dashboard(auth: dict, refresh_callback: Callable[[], None] | None = None) -> None:
     usuario = Usuario.get_or_none(Usuario.id == auth.get('usuario_id'))
 
     with ui.column().classes('w-full gap-6 p-6'):
@@ -302,7 +303,11 @@ def render_dashboard(auth: dict) -> None:
 
                 solicitacao_dialog.close()
                 ui.notify(f'Solicitacao registrada como lead #{lead.id}.', color='positive')
-                ui.timer(0.3, lambda: ui.navigate.to('/cliente/dashboard'), once=True)
+                ui.timer(
+                    0.3,
+                    refresh_callback or (lambda: ui.navigate.to('/cliente/dashboard')),
+                    once=True,
+                )
 
             with ui.row().classes('w-full justify-end gap-3'):
                 ui.button('Cancelar', on_click=solicitacao_dialog.close).props('flat color=primary')
@@ -328,7 +333,11 @@ def render_dashboard(auth: dict) -> None:
                 _cancelar_solicitacao(lead_aberto)
                 status_dialog.close()
                 ui.notify('Solicitacao cancelada.', color='positive')
-                ui.timer(0.3, lambda: ui.navigate.to('/cliente/dashboard'), once=True)
+                ui.timer(
+                    0.3,
+                    refresh_callback or (lambda: ui.navigate.to('/cliente/dashboard')),
+                    once=True,
+                )
 
             with ui.row().classes('w-full justify-end gap-3'):
                 ui.button('Fechar', on_click=status_dialog.close).props('flat color=primary')
