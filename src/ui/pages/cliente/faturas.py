@@ -14,7 +14,11 @@ def _parse_float(value: Any, field_name: str, optional: bool = False) -> float |
             return None
         raise ValueError(f'O campo "{field_name}" e obrigatorio.')
     try:
-        return float(text.replace('.', '').replace(',', '.'))
+        if ',' in text:
+            text = text.replace('.', '').replace(',', '.')
+        elif text.count('.') > 1:
+            text = text.replace('.', '')
+        return float(text)
     except ValueError as exc:
         raise ValueError(f'O campo "{field_name}" deve ser numerico.') from exc
 
@@ -37,7 +41,11 @@ def _formatar_valor_input_br(campo: ui.input, optional: bool = False) -> None:
     if not texto:
         return
     try:
-        numero = float(texto.replace('.', '').replace(',', '.'))
+        if ',' in texto:
+            texto = texto.replace('.', '').replace(',', '.')
+        elif texto.count('.') > 1:
+            texto = texto.replace('.', '')
+        numero = float(texto)
         campo.value = _format_num_br(numero)
         campo.update()
     except ValueError:
@@ -187,12 +195,12 @@ def render_faturas(auth: dict) -> None:
 
                 state['edit_id'] = fatura.id
                 mes_referencia.value = fatura.mes_referencia
-                consumo_kwh.value = str(fatura.consumo_kwh)
-                valor_fatura_rs.value = str(fatura.valor_fatura_rs)
-                injecao_kwh.value = '' if fatura.injecao_kwh is None else str(fatura.injecao_kwh)
-                creditos_utilizados.value = '' if fatura.creditos_utilizados is None else str(fatura.creditos_utilizados)
-                saldo_creditos.value = '' if fatura.saldo_creditos is None else str(fatura.saldo_creditos)
-                geracao_app_kwh.value = '' if fatura.geracao_app_kwh is None else str(fatura.geracao_app_kwh)
+                consumo_kwh.value = _format_num_br(fatura.consumo_kwh)
+                valor_fatura_rs.value = _format_num_br(fatura.valor_fatura_rs)
+                injecao_kwh.value = '' if fatura.injecao_kwh is None else _format_num_br(fatura.injecao_kwh)
+                creditos_utilizados.value = '' if fatura.creditos_utilizados is None else _format_num_br(fatura.creditos_utilizados)
+                saldo_creditos.value = '' if fatura.saldo_creditos is None else _format_num_br(fatura.saldo_creditos)
+                geracao_app_kwh.value = '' if fatura.geracao_app_kwh is None else _format_num_br(fatura.geracao_app_kwh)
                 ui.notify('Fatura carregada para correcao.', color='primary')
 
             def salvar_fatura() -> None:
