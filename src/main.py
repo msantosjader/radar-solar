@@ -8,6 +8,7 @@ from src.ui.layout import render_private_shell
 from src.ui.pages.cliente.spa import render_cliente_spa
 from src.ui.pages.empresa.kanban import render_kanban
 from src.ui.pages.empresa.mapa import render_mapa
+from src.ui.pages.empresa.perfil import render_perfil_empresa
 from src.ui.pages.public.auth_confirm import render_auth_confirm
 from src.ui.pages.public.homepage import render_homepage
 from src.ui.pages.public.login import render_login
@@ -103,6 +104,18 @@ def empresa_mapa():
     apply_theme()
     render_private_shell(auth, '/empresa/mapa', 'Mapa do integrador', 'Concentracao de instalacoes e oportunidades.')
     render_mapa()
+
+
+@ui.page('/empresa/perfil')
+def empresa_perfil():
+    auth = app.storage.user.get('auth')
+    if not auth or auth.get('profile') != 'company':
+        apply_theme()
+        render_redirect('/login?profile=company')
+        return
+    apply_theme()
+    render_private_shell(auth, '/empresa/perfil', 'Perfil da empresa', 'Dados comerciais e regiao de atendimento.')
+    render_perfil_empresa(auth)
 
 
 @ui.page('/empresa/kanban')
