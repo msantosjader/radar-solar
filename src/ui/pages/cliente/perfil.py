@@ -181,8 +181,11 @@ def render_perfil(auth: dict) -> None:
                 auth_atual = app.storage.user.get('auth') or {}
                 auth_atual['nome'] = usuario.nome
                 app.storage.user['auth'] = auth_atual
+                ui.run_javascript(
+                    "document.querySelectorAll('.rs-current-user-name').forEach(el => el.textContent = "
+                    f"{json.dumps(usuario.nome)})"
+                )
                 ui.notify('Perfil atualizado com sucesso.', color='positive')
-                ui.timer(0.2, lambda: ui.navigate.to('/cliente/perfil'), once=True)
 
             with ui.row().classes('w-full justify-end'):
                 ui.button('Salvar perfil', on_click=salvar_perfil).props('color=primary').classes('rounded-xl px-5')

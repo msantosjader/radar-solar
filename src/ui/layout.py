@@ -8,9 +8,9 @@ from src.auth import rota_inicial
 
 NAV_ITEMS = {
     'customer': [
+        ('/cliente/perfil', 'person', 'Perfil'),
         ('/cliente/dashboard', 'dashboard', 'Dashboard'),
         ('/cliente/faturas', 'receipt_long', 'Faturas'),
-        ('/cliente/perfil', 'person', 'Perfil'),
     ],
     'company': [
         ('/empresa/mapa', 'map', 'Mapa'),
@@ -50,7 +50,7 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
                     ui.label('Area autenticada').classes('text-xs text-slate-400')
 
             with ui.column().classes('gap-2'):
-                ui.label(auth['nome']).classes('text-lg font-semibold')
+                ui.label(auth['nome']).classes('text-lg font-semibold rs-current-user-name')
                 ui.label(auth['email']).classes('text-sm text-slate-400')
 
             with ui.column().classes('w-full gap-2'):
