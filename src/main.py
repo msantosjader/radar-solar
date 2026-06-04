@@ -5,9 +5,7 @@ from nicegui import app, ui
 
 from src.models import criar_tabelas
 from src.ui.layout import render_private_shell
-from src.ui.pages.cliente.dashboard import render_dashboard
-from src.ui.pages.cliente.faturas import render_faturas
-from src.ui.pages.cliente.perfil import render_perfil
+from src.ui.pages.cliente.spa import render_cliente_spa
 from src.ui.pages.empresa.kanban import render_kanban
 from src.ui.pages.empresa.mapa import render_mapa
 from src.ui.pages.public.auth_confirm import render_auth_confirm
@@ -70,8 +68,7 @@ def cliente_dashboard():
         render_redirect('/login?profile=customer')
         return
     apply_theme()
-    render_private_shell(auth, '/cliente/dashboard', 'Dashboard do gerador', 'Acompanhamento da usina e dos creditos.')
-    render_dashboard(auth)
+    render_cliente_spa(auth, 'dashboard')
 
 
 @ui.page('/cliente/faturas')
@@ -82,8 +79,7 @@ def cliente_faturas():
         render_redirect('/login?profile=customer')
         return
     apply_theme()
-    render_private_shell(auth, '/cliente/faturas', 'Faturas', 'Insercao e historico de contas de energia.')
-    render_faturas(auth)
+    render_cliente_spa(auth, 'faturas')
 
 
 @ui.page('/cliente/perfil')
@@ -94,8 +90,7 @@ def cliente_perfil():
         render_redirect('/login?profile=customer')
         return
     apply_theme()
-    render_private_shell(auth, '/cliente/perfil', 'Perfil do cliente', 'Dados de contato e instalacao.')
-    render_perfil(auth)
+    render_cliente_spa(auth, 'perfil')
 
 
 @ui.page('/empresa/mapa')
