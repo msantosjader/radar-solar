@@ -62,11 +62,11 @@ def _obter_ou_criar_instalacao_manual(usuario_id: int) -> InstalacaoSolar:
         usuario=usuario_id,
         concessionaria='Neoenergia',
         classe_consumo='B2C',
-        cep='00000000',
-        logradouro='Nao informado',
-        numero='S/N',
-        cidade='Nao informado',
-        estado='PE',
+        cep='',
+        logradouro='',
+        numero='',
+        cidade='',
+        estado='',
     )
 
 

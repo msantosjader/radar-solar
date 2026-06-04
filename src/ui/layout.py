@@ -10,6 +10,7 @@ NAV_ITEMS = {
     'customer': [
         ('/cliente/dashboard', 'dashboard', 'Dashboard'),
         ('/cliente/faturas', 'receipt_long', 'Faturas'),
+        ('/cliente/perfil', 'person', 'Perfil'),
     ],
     'company': [
         ('/empresa/mapa', 'map', 'Mapa'),
