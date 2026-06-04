@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import zipfile
 import shutil
 import sys
 import tempfile
@@ -12,11 +13,67 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import pandas as pd
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = BASE_DIR / 'data' / 'raw'
 ANEEL_RAW_DIR = RAW_DIR / 'aneel'
+PROCESSED_DIR = BASE_DIR / 'data' / 'processed' / 'aneel'
 MANIFEST_PATH = ANEEL_RAW_DIR / 'manifest.json'
+
+RMR_MUNICIPIOS = {
+    'ABREU E LIMA',
+    'ARACOIABA',
+    'CABO DE SANTO AGOSTINHO',
+    'CAMARAGIBE',
+    'IGARASSU',
+    'ILHA DE ITAMARACA',
+    'IPOJUCA',
+    'ITAPISSUMA',
+    'JABOATAO DOS GUARARAPES',
+    'MORENO',
+    'OLINDA',
+    'PAULISTA',
+    'RECIFE',
+    'SAO LOURENCO DA MATA',
+}
+
+EMPREENDIMENTOS_COLS = [
+    'DatGeracaoConjuntoDados',
+    'AnmPeriodoReferencia',
+    'NomAgente',
+    'DscClasseConsumo',
+    'DscSubGrupoTarifario',
+    'SigUF',
+    'CodMunicipioIbge',
+    'NomMunicipio',
+    'CodCEP',
+    'SigTipoConsumidor',
+    'CodEmpreendimento',
+    'DthAtualizaCadastralEmpreend',
+    'DscModalidadeHabilitado',
+    'QtdUCRecebeCredito',
+    'DscFonteGeracao',
+    'DscPorte',
+    'NumCoordNEmpreendimento',
+    'NumCoordEEmpreendimento',
+    'MdaPotenciaInstaladaKW',
+]
+
+INFO_TECNICA_COLS = [
+    'CodGeracaoDistribuida',
+    'MdaAreaArranjo',
+    'MdaPotenciaInstalada',
+    'NomFabricanteModulo',
+    'NomFabricanteInversor',
+    'DatConexao',
+    'MdaPotenciaModulos',
+    'MdaPotenciaInversores',
+    'QtdModulos',
+    'NomModeloModulo',
+    'NomModeloInversor',
+]
 
 ANEEL_RESOURCES = {
     'empreendimentos': {
@@ -76,6 +133,31 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def normalize_text(value: object) -> str:
+    text = '' if pd.isna(value) else str(value).strip().upper()
+    replacements = str.maketrans(
+        'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
+        'AAAAAEEEEIIIIOOOOOUUUUC',
+    )
+    return text.translate(replacements)
+
+
+def parse_float_series(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(
+        series.astype(str).str.strip().str.replace('.', '', regex=False).str.replace(',', '.', regex=False),
+        errors='coerce',
+    )
+
+
+def parse_int_series(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series.astype(str).str.strip(), errors='coerce').astype('Int64')
+
+
+def extract_cep_prefix(value: object) -> str:
+    digits = ''.join(filter(str.isdigit, '' if pd.isna(value) else str(value)))
+    return digits[:5] if len(digits) >= 5 else ''
 
 
 def download_to_temp(url: str) -> Path:
@@ -152,6 +234,253 @@ def update_resource(name: str, config: dict, manifest: dict, force: bool = False
         temp_path.unlink(missing_ok=True)
 
 
+def read_empreendimentos_rmr(chunksize: int = 200_000) -> pd.DataFrame:
+    zip_path = ANEEL_RAW_DIR / ANEEL_RESOURCES['empreendimentos']['filename']
+    if not zip_path.exists():
+        raise FileNotFoundError(f'Arquivo ANEEL ausente: {zip_path}')
+
+    frames: list[pd.DataFrame] = []
+    with zipfile.ZipFile(zip_path) as archive:
+        csv_name = archive.namelist()[0]
+        with archive.open(csv_name) as file:
+            reader = pd.read_csv(
+                file,
+                sep=';',
+                dtype=str,
+                usecols=EMPREENDIMENTOS_COLS,
+                chunksize=chunksize,
+                encoding='latin1',
+            )
+            for index, chunk in enumerate(reader, start=1):
+                chunk['municipio_norm'] = chunk['NomMunicipio'].map(normalize_text)
+                filtered = chunk[(chunk['SigUF'] == 'PE') & (chunk['municipio_norm'].isin(RMR_MUNICIPIOS))].copy()
+                if not filtered.empty:
+                    frames.append(filtered)
+                print(f'empreendimentos: chunk {index} processado; acumulado RMR={sum(len(frame) for frame in frames)}')
+
+    if not frames:
+        return pd.DataFrame(columns=EMPREENDIMENTOS_COLS + ['municipio_norm'])
+    return pd.concat(frames, ignore_index=True)
+
+
+def read_info_tecnica_for(codigos: set[str], chunksize: int = 250_000) -> pd.DataFrame:
+    csv_path = ANEEL_RAW_DIR / ANEEL_RESOURCES['info_tecnica_fotovoltaica']['filename']
+    if not csv_path.exists():
+        raise FileNotFoundError(f'Arquivo ANEEL ausente: {csv_path}')
+
+    frames: list[pd.DataFrame] = []
+    reader = pd.read_csv(
+        csv_path,
+        sep=';',
+        dtype=str,
+        usecols=INFO_TECNICA_COLS,
+        chunksize=chunksize,
+        encoding='latin1',
+    )
+    for index, chunk in enumerate(reader, start=1):
+        filtered = chunk[chunk['CodGeracaoDistribuida'].isin(codigos)].copy()
+        if not filtered.empty:
+            frames.append(filtered)
+        print(f'info_tecnica: chunk {index} processado; acumulado RMR={sum(len(frame) for frame in frames)}')
+
+    if not frames:
+        return pd.DataFrame(columns=INFO_TECNICA_COLS)
+    return pd.concat(frames, ignore_index=True)
+
+
+def build_cep_bairro_lookup() -> list[tuple[int, int, str, str]]:
+    dne_dir = RAW_DIR / 'correios' / 'eDNE_Basico_26031' / 'Delimitado'
+    faixa_bairro = pd.read_csv(
+        dne_dir / 'LOG_FAIXA_BAIRRO.TXT',
+        sep='@',
+        names=['BAI_NU', 'FCB_CEP_INI', 'FCB_CEP_FIM'],
+        dtype=str,
+        encoding='latin1',
+    )
+    bairros = pd.read_csv(
+        dne_dir / 'LOG_BAIRRO.TXT',
+        sep='@',
+        names=['BAI_NU', 'UFE_SG', 'LOC_NU', 'BAI_NO', 'BAI_NO_ABREV'],
+        dtype=str,
+        encoding='latin1',
+    )
+    localidades = pd.read_csv(
+        dne_dir / 'LOG_LOCALIDADE.TXT',
+        sep='@',
+        names=['LOC_NU', 'UFE_SG', 'LOC_NO', 'CEP', 'LOC_IN_SIT', 'LOC_IN_TIPO_LOC', 'LOC_NU_SUB', 'LOC_NO_ABREV', 'MUN_NU'],
+        dtype=str,
+        encoding='latin1',
+    )
+
+    bairros_pe = bairros[bairros['UFE_SG'] == 'PE'][['BAI_NU', 'LOC_NU', 'BAI_NO']]
+    localidades_pe = localidades[localidades['UFE_SG'] == 'PE'][['LOC_NU', 'LOC_NO']]
+    merged = faixa_bairro.merge(bairros_pe, on='BAI_NU', how='inner').merge(localidades_pe, on='LOC_NU', how='left')
+
+    lookup = []
+    for row in merged.itertuples(index=False):
+        try:
+            lookup.append((int(row.FCB_CEP_INI), int(row.FCB_CEP_FIM), str(row.BAI_NO), str(row.LOC_NO)))
+        except (TypeError, ValueError):
+            continue
+    return lookup
+
+
+def resolve_bairro_for_prefix(cep_prefix: str, lookup: list[tuple[int, int, str, str]]) -> tuple[str | None, str | None]:
+    if not cep_prefix:
+        return None, None
+    cep_ini = int(f'{cep_prefix}000')
+    cep_fim = int(f'{cep_prefix}999')
+    for faixa_ini, faixa_fim, bairro, municipio in lookup:
+        if faixa_ini <= cep_fim and faixa_fim >= cep_ini:
+            return bairro, municipio
+    return None, None
+
+
+def normalize_joined_data(df: pd.DataFrame) -> pd.DataFrame:
+    rename_map = {
+        'CodEmpreendimento': 'cod_empreendimento',
+        'DatGeracaoConjuntoDados': 'data_geracao_dados',
+        'AnmPeriodoReferencia': 'periodo_referencia',
+        'NomAgente': 'concessionaria',
+        'DscClasseConsumo': 'classe_consumo',
+        'DscSubGrupoTarifario': 'subgrupo_tarifario',
+        'SigUF': 'uf',
+        'CodMunicipioIbge': 'cod_municipio_ibge',
+        'NomMunicipio': 'municipio',
+        'CodCEP': 'cep_original',
+        'SigTipoConsumidor': 'tipo_consumidor',
+        'DthAtualizaCadastralEmpreend': 'data_atualizacao_cadastral',
+        'DscModalidadeHabilitado': 'modalidade',
+        'QtdUCRecebeCredito': 'qtd_ucs_recebem_credito',
+        'DscFonteGeracao': 'fonte_geracao',
+        'DscPorte': 'porte',
+        'NumCoordNEmpreendimento': 'latitude',
+        'NumCoordEEmpreendimento': 'longitude',
+        'MdaPotenciaInstaladaKW': 'potencia_kw',
+        'MdaAreaArranjo': 'area_arranjo_m2',
+        'MdaPotenciaInstalada': 'potencia_tecnica_kw',
+        'NomFabricanteModulo': 'fabricante_modulo',
+        'NomFabricanteInversor': 'fabricante_inversor',
+        'DatConexao': 'data_conexao',
+        'MdaPotenciaModulos': 'potencia_modulos_kw',
+        'MdaPotenciaInversores': 'potencia_inversores_kw',
+        'QtdModulos': 'qtd_modulos',
+        'NomModeloModulo': 'modelo_modulo',
+        'NomModeloInversor': 'modelo_inversor',
+    }
+    df = df.rename(columns=rename_map)
+    for column in ['potencia_kw', 'latitude', 'longitude', 'area_arranjo_m2', 'potencia_tecnica_kw', 'potencia_modulos_kw', 'potencia_inversores_kw']:
+        if column in df:
+            df[column] = parse_float_series(df[column])
+    for column in ['qtd_ucs_recebem_credito', 'qtd_modulos']:
+        if column in df:
+            df[column] = parse_int_series(df[column])
+    for column in ['data_conexao', 'data_atualizacao_cadastral', 'data_geracao_dados']:
+        if column in df:
+            df[column] = pd.to_datetime(df[column], errors='coerce')
+    df['cep_prefixo'] = df['cep_original'].map(extract_cep_prefix)
+    return df
+
+
+def enrich_with_bairro(df: pd.DataFrame) -> pd.DataFrame:
+    lookup = build_cep_bairro_lookup()
+    unique_prefixes = sorted(prefix for prefix in df['cep_prefixo'].dropna().unique() if prefix)
+    resolved = {prefix: resolve_bairro_for_prefix(prefix, lookup) for prefix in unique_prefixes}
+    df['bairro_estimado'] = df['cep_prefixo'].map(lambda prefix: resolved.get(prefix, (None, None))[0])
+    df['municipio_dne'] = df['cep_prefixo'].map(lambda prefix: resolved.get(prefix, (None, None))[1])
+    return df
+
+
+def write_parquets(instalacoes: pd.DataFrame) -> None:
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    instalacoes_path = PROCESSED_DIR / 'rmr_instalacoes.parquet'
+    municipios_path = PROCESSED_DIR / 'rmr_municipios.parquet'
+    bairros_path = PROCESSED_DIR / 'rmr_bairros.parquet'
+    equipamentos_path = PROCESSED_DIR / 'rmr_equipamentos.parquet'
+    serie_path = PROCESSED_DIR / 'rmr_serie_mensal.parquet'
+
+    instalacoes.to_parquet(instalacoes_path, index=False)
+
+    municipios = (
+        instalacoes.groupby(['uf', 'municipio'], dropna=False)
+        .agg(
+            qtd_instalacoes=('cod_empreendimento', 'count'),
+            potencia_kw=('potencia_kw', 'sum'),
+            potencia_media_kw=('potencia_kw', 'mean'),
+            data_primeira_conexao=('data_conexao', 'min'),
+            data_ultima_conexao=('data_conexao', 'max'),
+        )
+        .reset_index()
+    )
+    municipios.to_parquet(municipios_path, index=False)
+
+    bairros_base = instalacoes.copy()
+    bairros_base['bairro_estimado'] = bairros_base['bairro_estimado'].fillna('Nao identificado')
+    bairros = (
+        bairros_base.groupby(['uf', 'municipio', 'bairro_estimado'], dropna=False)
+        .agg(
+            qtd_instalacoes=('cod_empreendimento', 'count'),
+            potencia_kw=('potencia_kw', 'sum'),
+            potencia_media_kw=('potencia_kw', 'mean'),
+            latitude_centroide=('latitude', 'mean'),
+            longitude_centroide=('longitude', 'mean'),
+            data_primeira_conexao=('data_conexao', 'min'),
+            data_ultima_conexao=('data_conexao', 'max'),
+        )
+        .reset_index()
+    )
+    bairros['score_oportunidade'] = bairros['qtd_instalacoes'] * 0.6 + bairros['potencia_kw'].fillna(0) * 0.4
+    bairros.to_parquet(bairros_path, index=False)
+
+    equipamentos_base = bairros_base.copy()
+    equipamentos_base['fabricante_modulo'] = equipamentos_base['fabricante_modulo'].fillna('Nao informado').str.strip()
+    equipamentos_base['fabricante_inversor'] = equipamentos_base['fabricante_inversor'].fillna('Nao informado').str.strip()
+    equipamentos = (
+        equipamentos_base.groupby(['uf', 'municipio', 'bairro_estimado', 'fabricante_modulo', 'fabricante_inversor'], dropna=False)
+        .agg(qtd_instalacoes=('cod_empreendimento', 'count'), potencia_kw=('potencia_kw', 'sum'))
+        .reset_index()
+    )
+    equipamentos.to_parquet(equipamentos_path, index=False)
+
+    serie_base = instalacoes.dropna(subset=['data_conexao']).copy()
+    serie_base['ano_mes'] = serie_base['data_conexao'].dt.to_period('M').astype(str)
+    serie = (
+        serie_base.groupby(['ano_mes', 'uf', 'municipio'], dropna=False)
+        .agg(novas_instalacoes=('cod_empreendimento', 'count'), potencia_adicionada_kw=('potencia_kw', 'sum'))
+        .reset_index()
+        .sort_values(['municipio', 'ano_mes'])
+    )
+    serie['potencia_acumulada_kw'] = serie.groupby('municipio')['potencia_adicionada_kw'].cumsum()
+    serie.to_parquet(serie_path, index=False)
+
+    print('\nParquets gerados:')
+    for path in [instalacoes_path, municipios_path, bairros_path, equipamentos_path, serie_path]:
+        print(f'- {path.relative_to(BASE_DIR)} ({path.stat().st_size / 1024 / 1024:.2f} MB)')
+
+
+def process_aneel_data() -> None:
+    print('\nProcessando empreendimentos ANEEL para PE/RMR')
+    empreendimentos = read_empreendimentos_rmr()
+    if empreendimentos.empty:
+        raise RuntimeError('Nenhum empreendimento encontrado para PE/RMR.')
+    print(f'empreendimentos RMR: {len(empreendimentos)}')
+
+    codigos = set(empreendimentos['CodEmpreendimento'].dropna().astype(str))
+    print('\nProcessando informacoes tecnicas fotovoltaicas')
+    info_tecnica = read_info_tecnica_for(codigos)
+    print(f'info tecnica RMR: {len(info_tecnica)}')
+
+    joined = empreendimentos.merge(
+        info_tecnica,
+        left_on='CodEmpreendimento',
+        right_on='CodGeracaoDistribuida',
+        how='left',
+    )
+    instalacoes = normalize_joined_data(joined)
+    instalacoes = enrich_with_bairro(instalacoes)
+    write_parquets(instalacoes)
+
+
 def validate_supporting_raw_data() -> bool:
     ibge_dir = RAW_DIR / 'ibge'
 
@@ -177,7 +506,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Baixa bases ANEEL quando houver nova versao disponivel.')
     parser.add_argument('--force', action='store_true', help='Baixa novamente mesmo se metadados/sha256 indicarem igualdade.')
     parser.add_argument('--validate-only', action='store_true', help='Valida estrutura local sem baixar ANEEL.')
+    parser.add_argument('--process-only', action='store_true', help='Nao baixa dados; apenas gera os Parquets com os arquivos locais.')
+    parser.add_argument('--force-process', action='store_true', help='Gera Parquets mesmo se os arquivos remotos nao mudaram.')
     return parser.parse_args()
+
+
+def processed_outputs_exist() -> bool:
+    expected = [
+        'rmr_instalacoes.parquet',
+        'rmr_municipios.parquet',
+        'rmr_bairros.parquet',
+        'rmr_equipamentos.parquet',
+        'rmr_serie_mensal.parquet',
+    ]
+    return all((PROCESSED_DIR / filename).exists() for filename in expected)
 
 
 def main() -> int:
@@ -187,6 +529,10 @@ def main() -> int:
         return 1
 
     if args.validate_only:
+        return 0
+
+    if args.process_only:
+        process_aneel_data()
         return 0
 
     manifest = load_manifest()
@@ -204,6 +550,10 @@ def main() -> int:
         'any_changed': any_changed,
     }
     save_manifest(manifest)
+    if any_changed or args.force_process or not processed_outputs_exist():
+        process_aneel_data()
+    else:
+        print('\nParquets ja existem e dados remotos nao mudaram; processamento ignorado')
     print(f'\nConcluido. Houve atualizacao: {any_changed}')
     return 0
 
