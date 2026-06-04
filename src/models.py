@@ -26,6 +26,18 @@ class Usuario(BaseModel):
     tipo_perfil = CharField()  # 'B2C' (Cliente) ou 'B2B' (Empresa)
 
 
+class EmpresaPerfil(BaseModel):
+    usuario = ForeignKeyField(Usuario, backref='perfil_empresa', unique=True)
+    nome_fantasia = CharField(null=True)
+    email_comercial = CharField(null=True)
+    cep = CharField(null=True)
+    logradouro = CharField(null=True)
+    numero = CharField(null=True)
+    complemento = CharField(null=True)
+    cidade = CharField(null=True)
+    estado = CharField(max_length=2, null=True)
+
+
 class InstalacaoSolar(BaseModel):
     usuario = ForeignKeyField(Usuario, backref='instalacoes')
 
@@ -90,7 +102,7 @@ class Lead(BaseModel):
 def criar_tabelas():
     """Executa a criação física das tabelas dentro do ficheiro SQLite"""
     with db:
-        db.create_tables([Usuario, InstalacaoSolar, Fatura, Lead])
+        db.create_tables([Usuario, EmpresaPerfil, InstalacaoSolar, Fatura, Lead])
         migrar_lead_empresa_responsavel_nullable()
 
 

@@ -13,6 +13,7 @@ NAV_ITEMS = {
         ('/cliente/faturas', 'receipt_long', 'Faturas'),
     ],
     'company': [
+        ('/empresa/perfil', 'person', 'Perfil'),
         ('/empresa/mapa', 'map', 'Mapa'),
         ('/empresa/kanban', 'view_kanban', 'Kanban'),
     ],

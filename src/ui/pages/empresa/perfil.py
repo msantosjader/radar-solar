@@ -1,0 +1,242 @@
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
+
+from nicegui import app, ui
+
+from src.models import EmpresaPerfil, Usuario
+
+
+def _only_digits(value: Any) -> str:
+    return re.sub(r'\D', '', '' if value is None else str(value))
+
+
+def _normalizar_cnpj(value: Any) -> str:
+    cnpj = _only_digits(value)
+    if cnpj and len(cnpj) != 14:
+        raise ValueError('Informe um CNPJ valido com 14 digitos.')
+    return cnpj
+
+
+def _normalizar_cep(value: Any) -> str:
+    cep = _only_digits(value)
+    if cep and len(cep) != 8:
+        raise ValueError('Informe um CEP valido com 8 digitos.')
+    return cep
+
+
+def _normalizar_estado(value: Any) -> str:
+    estado = '' if value is None else str(value).strip().upper()
+    if estado and len(estado) != 2:
+        raise ValueError('Informe a UF com 2 letras, exemplo: PE.')
+    return estado
+
+
+def _buscar_cnpj(cnpj: str) -> dict[str, str] | None:
+    try:
+        with urlopen(f'https://brasilapi.com.br/api/cnpj/v1/{cnpj}', timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        return None
+
+    return {
+        'razao_social': data.get('razao_social') or '',
+        'nome_fantasia': data.get('nome_fantasia') or '',
+        'email': data.get('email') or '',
+        'telefone': data.get('ddd_telefone_1') or data.get('ddd_telefone_2') or '',
+        'cep': _only_digits(data.get('cep')),
+        'logradouro': data.get('logradouro') or '',
+        'numero': data.get('numero') or '',
+        'complemento': data.get('complemento') or '',
+        'cidade': data.get('municipio') or '',
+        'estado': data.get('uf') or '',
+    }
+
+
+def _buscar_endereco_por_cep(cep: str) -> dict[str, str] | None:
+    try:
+        with urlopen(f'https://viacep.com.br/ws/{cep}/json/', timeout=8) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        return None
+
+    if data.get('erro'):
+        return None
+
+    return {
+        'logradouro': data.get('logradouro') or '',
+        'cidade': data.get('localidade') or '',
+        'estado': data.get('uf') or '',
+    }
+
+
+def _obter_ou_criar_perfil_empresa(usuario_id: int) -> EmpresaPerfil:
+    perfil = EmpresaPerfil.select().where(EmpresaPerfil.usuario == usuario_id).first()
+    if perfil:
+        return perfil
+    return EmpresaPerfil.create(usuario=usuario_id)
+
+
+def render_perfil_empresa(auth: dict) -> None:
+    usuario = Usuario.get_or_none(Usuario.id == auth.get('usuario_id'))
+
+    with ui.column().classes('w-full gap-6 p-6'):
+        ui.label('Perfil da empresa').classes('text-2xl font-bold text-slate-900')
+
+        if not usuario:
+            with ui.card().classes('w-full p-6 rounded-2xl'):
+                ui.label('Nao foi possivel carregar o usuario autenticado.').classes('text-base text-red-600')
+            return
+
+        perfil = _obter_ou_criar_perfil_empresa(usuario.id)
+
+        with ui.card().classes('w-full p-6 rounded-2xl gap-5'):
+            ui.label('Dados comerciais').classes('text-lg font-semibold text-slate-900')
+            ui.label(
+                'O e-mail de login fica bloqueado. Use o e-mail comercial para contato com clientes.'
+            ).classes('text-sm text-slate-600')
+
+            with ui.row().classes('w-full gap-4 items-start'):
+                cnpj = ui.input('CNPJ', value=usuario.cpf_cnpj or '').classes('w-56')
+                buscar_cnpj = ui.button('Buscar CNPJ').props('outline color=primary').classes('rounded-xl')
+                razao_social = ui.input('Razao social / nome da empresa *', value=usuario.nome).classes(
+                    'flex-1 min-w-72'
+                )
+
+            with ui.row().classes('w-full gap-4 items-start'):
+                nome_fantasia = ui.input('Nome fantasia', value=perfil.nome_fantasia or '').classes('flex-1 min-w-64')
+                email_login = ui.input('E-mail de login', value=usuario.email).classes('flex-1 min-w-64')
+                email_login.disable()
+
+            with ui.row().classes('w-full gap-4 items-start'):
+                email_comercial = ui.input('E-mail comercial', value=perfil.email_comercial or '').classes(
+                    'flex-1 min-w-64'
+                )
+                telefone = ui.input('Telefone/WhatsApp', value=usuario.telefone or '').classes('w-56')
+
+        with ui.card().classes('w-full p-6 rounded-2xl gap-5'):
+            ui.label('Endereco comercial').classes('text-lg font-semibold text-slate-900')
+            ui.label(
+                'Esses dados ajudam a posicionar a empresa na regiao de atendimento do MVP.'
+            ).classes('text-sm text-slate-600')
+
+            with ui.row().classes('w-full gap-4 items-start'):
+                cep = ui.input('CEP', value=perfil.cep or '').classes('w-44')
+                cidade = ui.input('Cidade', value=perfil.cidade or '').classes('flex-1 min-w-56')
+                estado = ui.input('UF', value=perfil.estado or '').classes('w-24')
+                buscar_cep = ui.button('Buscar CEP').props('outline color=primary').classes('rounded-xl')
+
+            with ui.row().classes('w-full gap-4 items-start'):
+                logradouro = ui.input('Logradouro', value=perfil.logradouro or '').classes('flex-1 min-w-64')
+                numero = ui.input('Numero', value=perfil.numero or '').classes('w-32')
+                complemento = ui.input('Complemento', value=perfil.complemento or '').classes('w-52')
+
+            def preencher_endereco(data: dict[str, str]) -> None:
+                cep.value = data.get('cep') or cep.value
+                logradouro.value = data.get('logradouro') or ''
+                numero.value = data.get('numero') or numero.value
+                complemento.value = data.get('complemento') or complemento.value
+                cidade.value = data.get('cidade') or ''
+                estado.value = data.get('estado') or ''
+                cep.update()
+                logradouro.update()
+                numero.update()
+                complemento.update()
+                cidade.update()
+                estado.update()
+
+            def preencher_por_cnpj() -> None:
+                try:
+                    cnpj_normalizado = _normalizar_cnpj(cnpj.value)
+                except ValueError as exc:
+                    ui.notify(str(exc), color='warning')
+                    return
+                if not cnpj_normalizado:
+                    ui.notify('Informe um CNPJ para buscar os dados da empresa.', color='warning')
+                    return
+
+                dados = _buscar_cnpj(cnpj_normalizado)
+                if not dados:
+                    ui.notify('CNPJ nao encontrado ou servico indisponivel.', color='warning')
+                    return
+
+                cnpj.value = cnpj_normalizado
+                razao_social.value = dados['razao_social'] or razao_social.value
+                nome_fantasia.value = dados['nome_fantasia'] or nome_fantasia.value
+                email_comercial.value = dados['email'] or email_comercial.value
+                telefone.value = dados['telefone'] or telefone.value
+                cnpj.update()
+                razao_social.update()
+                nome_fantasia.update()
+                email_comercial.update()
+                telefone.update()
+                preencher_endereco(dados)
+                ui.notify('Dados da empresa preenchidos pelo CNPJ.', color='positive')
+
+            def preencher_por_cep() -> None:
+                try:
+                    cep_normalizado = _normalizar_cep(cep.value)
+                except ValueError as exc:
+                    ui.notify(str(exc), color='warning')
+                    return
+                if not cep_normalizado:
+                    ui.notify('Informe um CEP para buscar o endereco.', color='warning')
+                    return
+
+                endereco = _buscar_endereco_por_cep(cep_normalizado)
+                if not endereco:
+                    ui.notify('CEP nao encontrado.', color='warning')
+                    return
+
+                cep.value = cep_normalizado
+                preencher_endereco({'cep': cep_normalizado, **endereco})
+                ui.notify('Endereco preenchido pelo CEP.', color='positive')
+
+            buscar_cnpj.on('click', preencher_por_cnpj)
+            buscar_cep.on('click', preencher_por_cep)
+            cep.on('blur', lambda _: preencher_por_cep() if str(cep.value or '').strip() else None)
+
+            def salvar_perfil() -> None:
+                try:
+                    if not str(razao_social.value or '').strip():
+                        raise ValueError('O campo "Razao social / nome da empresa" e obrigatorio.')
+
+                    cnpj_limpo = _normalizar_cnpj(cnpj.value)
+                    if cnpj_limpo:
+                        dono_cnpj = Usuario.get_or_none((Usuario.cpf_cnpj == cnpj_limpo) & (Usuario.id != usuario.id))
+                        if dono_cnpj:
+                            raise ValueError('CNPJ ja esta vinculado a outro usuario.')
+
+                    usuario.nome = str(razao_social.value).strip()
+                    usuario.cpf_cnpj = cnpj_limpo or None
+                    usuario.telefone = str(telefone.value or '').strip() or None
+                    usuario.save()
+
+                    perfil.nome_fantasia = str(nome_fantasia.value or '').strip() or None
+                    perfil.email_comercial = str(email_comercial.value or '').strip() or None
+                    perfil.cep = _normalizar_cep(cep.value) or None
+                    perfil.logradouro = str(logradouro.value or '').strip() or None
+                    perfil.numero = str(numero.value or '').strip() or None
+                    perfil.complemento = str(complemento.value or '').strip() or None
+                    perfil.cidade = str(cidade.value or '').strip() or None
+                    perfil.estado = _normalizar_estado(estado.value) or None
+                    perfil.save()
+                except ValueError as exc:
+                    ui.notify(str(exc), color='negative')
+                    return
+
+                auth_atual = app.storage.user.get('auth') or {}
+                auth_atual['nome'] = usuario.nome
+                app.storage.user['auth'] = auth_atual
+                ui.run_javascript(
+                    "document.querySelectorAll('.rs-current-user-name').forEach(el => el.textContent = "
+                    f"{json.dumps(usuario.nome)})"
+                )
+                ui.notify('Perfil da empresa atualizado com sucesso.', color='positive')
+
+            with ui.row().classes('w-full justify-end'):
+                ui.button('Salvar perfil', on_click=salvar_perfil).props('color=primary').classes('rounded-xl px-5')
