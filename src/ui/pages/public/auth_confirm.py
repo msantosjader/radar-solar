@@ -1,6 +1,6 @@
 from nicegui import app, ui
 
-from src.auth import criar_ou_atualizar_usuario, rota_inicial, serializar_sessao
+from src.auth import PerfilConflitanteError, criar_ou_atualizar_usuario, rota_inicial, serializar_sessao
 from src.ui.pages.public import inject_firebase_auth, inject_public_styles
 
 
@@ -29,12 +29,17 @@ def render_auth_confirm() -> None:
             return
         if result.get('status') == 'success':
             payload = result.get('payload') or {}
-            usuario, _created = criar_ou_atualizar_usuario(
-                firebase_uid=payload.get('firebase_uid', ''),
-                email=payload.get('email', ''),
-                profile=payload.get('profile', 'customer'),
-                nome=payload.get('display_name', ''),
-            )
+            try:
+                usuario, _created = criar_ou_atualizar_usuario(
+                    firebase_uid=payload.get('firebase_uid', ''),
+                    email=payload.get('email', ''),
+                    profile=payload.get('profile', 'customer'),
+                    nome=payload.get('display_name', ''),
+                )
+            except PerfilConflitanteError as exc:
+                ui.notify(str(exc), type='negative')
+                ui.navigate.to('/login')
+                return
             app.storage.user['auth'] = serializar_sessao(usuario, payload.get('profile', 'customer'))
             ui.navigate.to(rota_inicial(payload.get('profile', 'customer')))
 

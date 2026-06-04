@@ -15,6 +15,15 @@ PROFILE_TO_HOME = {
     'company': '/empresa/mapa',
 }
 
+TIPO_TO_LABEL = {
+    'B2C': 'Cliente',
+    'B2B': 'Empresa',
+}
+
+
+class PerfilConflitanteError(ValueError):
+    pass
+
 
 @dataclass(frozen=True)
 class AuthSession:
@@ -40,6 +49,15 @@ def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome
     profile = normalizar_profile(profile)
     tipo_perfil = PROFILE_TO_TIPO[profile]
     nome_base = (nome or '').strip() or email.split('@', 1)[0]
+
+    usuario_existente = Usuario.get_or_none(Usuario.email == email)
+    if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
+        perfil_existente = TIPO_TO_LABEL.get(usuario_existente.tipo_perfil, usuario_existente.tipo_perfil)
+        perfil_solicitado = TIPO_TO_LABEL.get(tipo_perfil, tipo_perfil)
+        raise PerfilConflitanteError(
+            f'Este e-mail ja esta cadastrado como {perfil_existente}. '
+            f'Use outro e-mail para acessar como {perfil_solicitado}.'
+        )
 
     usuario, created = Usuario.get_or_create(
         email=email,
