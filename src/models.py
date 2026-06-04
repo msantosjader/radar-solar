@@ -78,7 +78,7 @@ class Fatura(BaseModel):
 
 class Lead(BaseModel):
     cliente = ForeignKeyField(Usuario, backref='leads_gerados', null=True)
-    empresa_responsavel = ForeignKeyField(Usuario, backref='leads_capturados')
+    empresa_responsavel = ForeignKeyField(Usuario, backref='leads_capturados', null=True)
     nome_contato = CharField()
     telefone_contato = CharField(null=True)
     origem = CharField()
@@ -91,3 +91,29 @@ def criar_tabelas():
     """Executa a criação física das tabelas dentro do ficheiro SQLite"""
     with db:
         db.create_tables([Usuario, InstalacaoSolar, Fatura, Lead])
+        migrar_lead_empresa_responsavel_nullable()
+
+
+def migrar_lead_empresa_responsavel_nullable():
+    """Permite que leads nasçam abertos, sem integrador responsável."""
+    colunas = list(db.execute_sql("PRAGMA table_info('lead')"))
+    empresa_coluna = next((coluna for coluna in colunas if coluna[1] == 'empresa_responsavel_id'), None)
+    if not empresa_coluna or empresa_coluna[3] == 0:
+        return
+
+    with db.atomic():
+        db.execute_sql('ALTER TABLE lead RENAME TO lead_old_empresa_not_null')
+        db.create_tables([Lead])
+        db.execute_sql('''
+            INSERT INTO lead (
+                id, criado_em, atualizado_em, cliente_id, empresa_responsavel_id,
+                nome_contato, telefone_contato, origem, descricao_servico,
+                valor_estimado_rs, status
+            )
+            SELECT
+                id, criado_em, atualizado_em, cliente_id, empresa_responsavel_id,
+                nome_contato, telefone_contato, origem, descricao_servico,
+                valor_estimado_rs, status
+            FROM lead_old_empresa_not_null
+        ''')
+        db.execute_sql('DROP TABLE lead_old_empresa_not_null')
