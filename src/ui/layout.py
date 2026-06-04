@@ -71,9 +71,6 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
         with ui.column().classes('gap-0'):
             ui.label(title).classes('text-xl font-bold text-slate-900')
             ui.label(subtitle).classes('text-sm text-slate-500')
-        ui.button('Trocar perfil', on_click=lambda: ui.navigate.to('/login')).props('outline color=primary').classes(
-            'rounded-xl'
-        )
 
 
 def redirect_path_for(auth: dict) -> str:
