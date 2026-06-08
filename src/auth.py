@@ -16,8 +16,8 @@ PROFILE_TO_HOME = {
 }
 
 TIPO_TO_LABEL = {
-    'B2C': 'Cliente',
-    'B2B': 'Empresa',
+    'B2C': 'Gerador de energia',
+    'B2B': 'Integrador solar',
 }
 
 
@@ -59,7 +59,7 @@ def validar_email_para_profile(email: str, profile: str) -> str:
         perfil_solicitado = TIPO_TO_LABEL.get(tipo_perfil, tipo_perfil)
         raise PerfilConflitanteError(
             f'Este e-mail ja esta cadastrado como {perfil_existente}. '
-            f'Use outro e-mail para acessar como {perfil_solicitado}.'
+            f'Para acessar como {perfil_solicitado}, use outro e-mail.'
         )
     return email
 
