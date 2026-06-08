@@ -47,6 +47,7 @@ def rota_inicial(profile: str | None) -> str:
 
 def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome: str | None = None) -> tuple[Usuario, bool]:
     profile = normalizar_profile(profile)
+    email = email.strip().lower()
     tipo_perfil = PROFILE_TO_TIPO[profile]
     nome_base = (nome or '').strip() or email.split('@', 1)[0]
 
