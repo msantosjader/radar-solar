@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import json
+import secrets
+import time
 import unicodedata
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
+from fastapi import Request as FastAPIRequest
+from fastapi.responses import JSONResponse
 import pandas as pd
 import shapefile
-from nicegui import ui
+from nicegui import app, ui
 
+from src.models import InstalacaoSolar, Lead
 from src.normalize import normalizar_inversor, normalizar_modulo
 
 RMR_MUNICIPIOS = {
@@ -36,6 +44,64 @@ INSTALACOES_PARQUET = ROOT_DIR / 'data/processed/aneel/rmr_instalacoes.parquet'
 DNE_DIR = ROOT_DIR / 'data/raw/correios/eDNE_Basico_26031/Delimitado'
 CEP_PE_XLSX = ROOT_DIR / 'data/raw/CEP_PE.xlsx'
 EMPREENDIMENTOS_CSV = ROOT_DIR / 'data/processed/aneel/empreendimento-geracao-distribuida-rmr.csv'
+LEAD_STATUS_LABELS = {
+    'Novo': 'Novo',
+    'Em Contato': 'Em andamento',
+    'Concluído': 'Concluido',
+}
+MAPA_EMPRESA_TOKENS: dict[str, float] = {}
+MAPA_TOKEN_TTL_SECONDS = 15 * 60
+
+
+def _geocodificar_endereco(instalacao: InstalacaoSolar) -> tuple[float, float] | None:
+    partes = [
+        _text(instalacao.logradouro),
+        _text(instalacao.numero),
+        _text(instalacao.cep),
+        _text(instalacao.cidade),
+        _text(instalacao.estado),
+        'Brasil',
+    ]
+    endereco = ', '.join(part for part in partes if part)
+    if not endereco:
+        return None
+
+    query = urlencode({'format': 'json', 'limit': '1', 'q': endereco})
+    request = Request(
+        f'https://nominatim.openstreetmap.org/search?{query}',
+        headers={'User-Agent': 'RadarSolar/1.0 (contato@radarsolar.local)'},
+    )
+    try:
+        with urlopen(request, timeout=6) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        return None
+
+    if not data:
+        return None
+    try:
+        return float(data[0]['lat']), float(data[0]['lon'])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _shape_centroid(geometry: dict) -> tuple[float, float] | None:
+    points: list[tuple[float, float]] = []
+
+    def collect(coords):
+        if not coords:
+            return
+        first = coords[0]
+        if isinstance(first, (int, float)) and len(coords) >= 2:
+            points.append((float(coords[1]), float(coords[0])))
+            return
+        for item in coords:
+            collect(item)
+
+    collect(geometry.get('coordinates', []))
+    if not points:
+        return None
+    return sum(lat for lat, _ in points) / len(points), sum(lng for _, lng in points) / len(points)
 
 
 def _feature(geometry: dict, properties: dict) -> dict:
@@ -534,25 +600,163 @@ def carregar_geojson_rmr() -> dict:
     }
 
 
-def render_demo_mapa() -> None:
-    data = carregar_geojson_rmr()
-    payload = json.dumps(data, ensure_ascii=False)
+def carregar_leads_mapa(data: dict) -> list[dict]:
+    municipios_por_nome = {
+        _norm(feature['properties']['nome']): feature
+        for feature in data['municipios']['features']
+    }
+    bairros_por_municipio = data['bairrosPorMunicipio']
+    bairros_por_cep_exato, bairros_por_prefixo = carregar_bairros_por_cep()
+
+    leads = (
+        Lead.select()
+        .where(Lead.status.in_(list(LEAD_STATUS_LABELS)))
+        .order_by(Lead.criado_em.desc())
+    )
+    pins: list[dict] = []
+
+    for lead in leads:
+        if not lead.cliente_id:
+            continue
+
+        instalacao = InstalacaoSolar.select().where(InstalacaoSolar.usuario == lead.cliente_id).first()
+        if not instalacao:
+            continue
+
+        lat = instalacao.latitude
+        lng = instalacao.longitude
+        aproximado = False
+        municipio_nome = _text(instalacao.cidade)
+        municipio = municipios_por_nome.get(_norm(municipio_nome))
+        municipio_codigo = municipio['properties']['codigo'] if municipio else ''
+
+        if lat is None or lng is None:
+            coordenada_exata = _geocodificar_endereco(instalacao)
+            if coordenada_exata:
+                lat, lng = coordenada_exata
+                instalacao.latitude = lat
+                instalacao.longitude = lng
+                instalacao.save()
+
+        if lat is None or lng is None:
+            aproximado = True
+            cep = ''.join(char for char in _text(instalacao.cep) if char.isdigit())
+            candidatos = set()
+            if municipio_codigo and len(cep) == 8:
+                candidatos = bairros_por_cep_exato.get(municipio_codigo, {}).get(cep, set())
+            if municipio_codigo and not candidatos and len(cep) >= 5:
+                candidatos = bairros_por_prefixo.get(municipio_codigo, {}).get(cep[:5], set())
+
+            bairro_centroid = None
+            bairros = bairros_por_municipio.get(municipio_codigo, {}).get('features', []) if municipio_codigo else []
+            bairros_por_key = {
+                _bairro_key(feature['properties']['nome']): feature
+                for feature in bairros
+                if feature['properties']['tipo'] == 'bairro'
+            }
+            for candidato in candidatos:
+                feature = bairros_por_key.get(_bairro_key(candidato))
+                if not feature:
+                    continue
+                bairro_centroid = _shape_centroid(feature['geometry'])
+                if bairro_centroid:
+                    break
+
+            if bairro_centroid:
+                lat, lng = bairro_centroid
+            elif municipio:
+                municipio_centroid = _shape_centroid(municipio['geometry'])
+                if municipio_centroid:
+                    lat, lng = municipio_centroid
+
+        if lat is None or lng is None:
+            continue
+
+        endereco = ', '.join(
+            part
+            for part in [
+                _text(instalacao.logradouro),
+                _text(instalacao.numero),
+                municipio_nome,
+                _text(instalacao.estado),
+            ]
+            if part
+        )
+        pins.append({
+            'id': lead.id,
+            'nome': _text(lead.nome_contato),
+            'telefone': _text(lead.telefone_contato),
+            'status': _text(lead.status),
+            'status_label': LEAD_STATUS_LABELS.get(_text(lead.status), _text(lead.status)),
+            'descricao': _text(lead.descricao_servico),
+            'endereco': endereco,
+            'cep': _text(instalacao.cep),
+            'lat': float(lat),
+            'lng': float(lng),
+            'aproximado': aproximado,
+        })
+
+    return pins
+
+
+def carregar_mapa_data(include_leads: bool = False) -> dict:
+    base = carregar_geojson_rmr()
+    data = {**base}
+    data['leads'] = carregar_leads_mapa(data) if include_leads else []
+    return data
+
+
+@app.get('/api/demo/mapa-rmr')
+def api_demo_mapa_rmr() -> JSONResponse:
+    return JSONResponse(carregar_mapa_data(include_leads=False))
+
+
+@app.get('/api/empresa/mapa-rmr')
+def api_empresa_mapa_rmr(request: FastAPIRequest) -> JSONResponse:
+    token = request.query_params.get('token', '')
+    now = time.time()
+    for stored_token, expires_at in list(MAPA_EMPRESA_TOKENS.items()):
+        if expires_at < now:
+            MAPA_EMPRESA_TOKENS.pop(stored_token, None)
+    if not token or MAPA_EMPRESA_TOKENS.get(token, 0) < now:
+        return JSONResponse({'error': 'Nao autorizado'}, status_code=401)
+    return JSONResponse(carregar_mapa_data(include_leads=True))
+
+
+def render_demo_mapa(show_header: bool = True, include_leads: bool = False) -> None:
+    if include_leads:
+        token = secrets.token_urlsafe(24)
+        MAPA_EMPRESA_TOKENS[token] = time.time() + MAPA_TOKEN_TTL_SECONDS
+        data_url = f'/api/empresa/mapa-rmr?token={token}'
+    else:
+        data_url = '/api/demo/mapa-rmr'
+    _render_demo_mapa_content(data_url, show_header=show_header)
+
+
+def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
 
     ui.add_head_html('''
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <style>
         body {
             background: #f8fafc;
         }
         #demo-mapa-rmr {
+            align-items: center;
+            background: linear-gradient(135deg, #f8fafc, #eef2ff);
+            color: #475569;
+            display: flex;
+            font-size: 14px;
+            font-weight: 800;
             width: 100%;
             height: calc(100vh - 420px);
+            justify-content: center;
             min-height: 400px;
             border-radius: 24px;
             overflow: hidden;
             box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+        }
+        #demo-mapa-rmr.rs-map-ready {
+            display: block;
         }
         .rs-map-label {
             border: 0;
@@ -617,6 +821,78 @@ def render_demo_mapa() -> None:
             font-size: 12px;
             font-weight: 700;
             margin-top: 4px;
+        }
+        .rs-lead-legend {
+            background: rgba(255, 255, 255, 0.94);
+            border-radius: 18px;
+            box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18);
+            color: #0f172a;
+            padding: 12px 14px;
+        }
+        .rs-lead-legend-title {
+            font-size: 12px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        .rs-lead-legend-row {
+            align-items: center;
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 6px;
+        }
+        .rs-lead-legend-dot {
+            border: 2px solid white;
+            border-radius: 999px;
+            box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18);
+            display: inline-block;
+            height: 12px;
+            width: 12px;
+        }
+        .rs-lead-pin {
+            height: 42px;
+            position: relative;
+            width: 30px;
+        }
+        .rs-lead-pin::before {
+            background: var(--lead-color);
+            border: 3px solid #fff;
+            border-radius: 50% 50% 50% 0;
+            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.35);
+            content: '';
+            height: 24px;
+            left: 3px;
+            position: absolute;
+            top: 0;
+            transform: rotate(-45deg);
+            width: 24px;
+        }
+        .rs-lead-pin::after {
+            background: #fff;
+            border-radius: 999px;
+            content: '';
+            height: 8px;
+            left: 11px;
+            position: absolute;
+            top: 8px;
+            width: 8px;
+        }
+        .rs-label-toggle {
+            background: rgba(255, 255, 255, 0.94);
+            border: 0;
+            border-radius: 14px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+            color: #0f172a;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 10px 12px;
+            text-transform: uppercase;
+        }
+        #demo-mapa-rmr.rs-hide-labels .rs-map-label {
+            display: none;
         }
         .rs-map-controls {
             display: grid;
@@ -708,11 +984,18 @@ def render_demo_mapa() -> None:
     </style>
     ''')
 
-    with ui.column().classes('w-full min-h-screen gap-5 p-6'):
+    container_classes = 'w-full gap-5 p-6'
+    if show_header:
+        container_classes += ' min-h-screen'
+
+    with ui.column().classes(container_classes):
         with ui.row().classes('w-full items-end justify-between gap-4'):
-            with ui.column().classes('gap-1'):
-                ui.label('Demo mapa RMR').classes('text-3xl font-bold text-slate-900')
-                ui.label('Mapa de calor municipal com dados de geracao distribuida da ANEEL.').classes('text-base text-slate-600')
+            if show_header:
+                with ui.column().classes('gap-1'):
+                    ui.label('Demo mapa RMR').classes('text-3xl font-bold text-slate-900')
+                    ui.label('Mapa de calor municipal com dados de geracao distribuida da ANEEL.').classes('text-base text-slate-600')
+            else:
+                ui.space()
             with ui.row().classes('gap-2'):
                 ui.button('Voltar', on_click=None).props('outline color=primary').classes('rs-map-back')
                 ui.button('RMR', on_click=None).props('outline color=primary').classes('rs-map-reset')
@@ -742,7 +1025,7 @@ def render_demo_mapa() -> None:
         </section>
         ''').classes('w-full')
 
-        ui.html('<div id="demo-mapa-rmr"></div>').classes('w-full')
+        ui.html('<div id="demo-mapa-rmr">Carregando dados do mapa...</div>').classes('w-full')
 
         ui.html('''
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -853,8 +1136,45 @@ def render_demo_mapa() -> None:
     ui.add_body_html(f'''
     <script>
     (() => {{
-        const data = {payload};
-        function init(attempt = 0) {{
+        const dataUrl = {json.dumps(data_url)};
+        let data = null;
+
+        function loadStyleOnce(id, href) {{
+            if (document.getElementById(id)) return;
+            const link = document.createElement('link');
+            link.id = id;
+            link.rel = 'stylesheet';
+            link.href = href;
+            document.head.appendChild(link);
+        }}
+
+        function loadScriptOnce(id, src, globalName) {{
+            if (globalName && window[globalName]) return Promise.resolve();
+            const existing = document.getElementById(id);
+            if (existing) {{
+                return new Promise((resolve, reject) => {{
+                    existing.addEventListener('load', resolve, {{ once: true }});
+                    existing.addEventListener('error', reject, {{ once: true }});
+                    if (globalName && window[globalName]) resolve();
+                }});
+            }}
+            return new Promise((resolve, reject) => {{
+                const script = document.createElement('script');
+                script.id = id;
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            }});
+        }}
+
+        async function ensureMapAssets() {{
+            loadStyleOnce('leaflet-css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+            await loadScriptOnce('leaflet-js', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'L');
+            await loadScriptOnce('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js', 'Chart');
+        }}
+
+        async function init(attempt = 0) {{
             const container = document.getElementById('demo-mapa-rmr');
             const resetButton = document.querySelector('.rs-map-reset');
             const backButton = document.querySelector('.rs-map-back');
@@ -889,18 +1209,53 @@ def render_demo_mapa() -> None:
             let chartClasseInstance = null;
             let chartPorteInstance = null;
             let chartModalidadeInstance = null;
-            if (!container || !window.L) {{
+            if (!container) {{
                 if (attempt < 80) setTimeout(() => init(attempt + 1), 100);
                 return;
             }}
             if (container.dataset.loaded === 'true') return;
             container.dataset.loaded = 'true';
 
+            try {{
+                await ensureMapAssets();
+            }} catch (error) {{
+                container.textContent = `Nao foi possivel carregar as bibliotecas do mapa (${{error.message || 'erro de rede'}}).`;
+                console.error('Erro ao carregar bibliotecas do mapa:', error);
+                return;
+            }}
+
+            try {{
+                const response = await fetch(dataUrl, {{ credentials: 'same-origin' }});
+                if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+                data = await response.json();
+            }} catch (error) {{
+                container.textContent = `Nao foi possivel carregar os dados do mapa (${{error.message}}).`;
+                console.error('Erro ao carregar mapa:', error);
+                return;
+            }}
+            container.textContent = '';
+            container.classList.add('rs-map-ready');
+
             const map = L.map(container, {{ zoomControl: true, scrollWheelZoom: true }});
             L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                 maxZoom: 19,
                 attribution: '&copy; OpenStreetMap'
             }}).addTo(map);
+            map.createPane('leadPane');
+            map.getPane('leadPane').style.zIndex = 760;
+            map.getPane('leadPane').style.pointerEvents = 'auto';
+
+            const leadStatusColors = {{
+                'Novo': '#2563eb',
+                'Em Contato': '#f97316',
+                'Concluído': '#16a34a',
+            }};
+            const leadStatusLabels = {{
+                'Novo': 'Novo',
+                'Em Contato': 'Em andamento',
+                'Concluído': 'Concluido',
+            }};
+            const leadLayer = L.layerGroup([], {{ pane: 'leadPane' }}).addTo(map);
 
             let activeLayer = null;
             let viewMode = 'rmr';
@@ -909,6 +1264,7 @@ def render_demo_mapa() -> None:
             let currentPage = 1;
             let legendBody = null;
             let unidentifiedBody = null;
+            let labelsVisible = true;
             const pageSize = 100;
 
             const municipioStyle = {{
@@ -1306,6 +1662,81 @@ def render_demo_mapa() -> None:
                 control.addTo(map);
             }}
 
+            function renderLeadPins() {{
+                leadLayer.clearLayers();
+                (data.leads || []).forEach((lead) => {{
+                    const lat = Number(lead.lat);
+                    const lng = Number(lead.lng);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                    const color = leadStatusColors[lead.status] || '#64748b';
+                    const icon = L.divIcon({{
+                        className: '',
+                        html: `<div class="rs-lead-pin" style="--lead-color:${{color}}"></div>`,
+                        iconSize: [30, 42],
+                        iconAnchor: [15, 39],
+                        popupAnchor: [0, -38],
+                    }});
+                    const marker = L.marker([lat, lng], {{
+                        icon,
+                        pane: 'leadPane',
+                        zIndexOffset: 10000,
+                    }});
+                    marker.bindPopup(`
+                        <strong>Lead #${{escapeHtml(lead.id)}}</strong><br>
+                        ${{escapeHtml(lead.nome)}}<br>
+                        <span>Status: ${{escapeHtml(lead.status_label || leadStatusLabels[lead.status] || lead.status)}}</span><br>
+                        ${{lead.telefone ? `<span>Contato: ${{escapeHtml(lead.telefone)}}</span><br>` : ''}}
+                        ${{lead.endereco ? `<span>${{escapeHtml(lead.endereco)}}</span><br>` : ''}}
+                        ${{lead.cep ? `<span>CEP: ${{escapeHtml(lead.cep)}}</span><br>` : ''}}
+                        ${{lead.aproximado ? '<em>Localizacao aproximada</em><br>' : ''}}
+                        ${{lead.descricao ? `<small>${{escapeHtml(lead.descricao)}}</small>` : ''}}
+                    `);
+                    marker.addTo(leadLayer);
+                }});
+            }}
+
+            function addLeadLegend() {{
+                if (!(data.leads || []).length) return;
+                const legend = L.control({{ position: 'bottomleft' }});
+                legend.onAdd = () => {{
+                    const div = L.DomUtil.create('div', 'rs-lead-legend');
+                    L.DomEvent.disableClickPropagation(div);
+                    div.innerHTML = `
+                        <div class="rs-lead-legend-title">Leads</div>
+                        ${{Object.entries(leadStatusColors).map(([status, color]) => `
+                            <div class="rs-lead-legend-row">
+                                <span class="rs-lead-legend-dot" style="background:${{color}}"></span>
+                                <span>${{leadStatusLabels[status] || status}}</span>
+                            </div>
+                        `).join('')}}
+                    `;
+                    return div;
+                }};
+                legend.addTo(map);
+            }}
+
+            function updateLabelToggle(button) {{
+                container.classList.toggle('rs-hide-labels', !labelsVisible);
+                if (button) button.textContent = labelsVisible ? 'Ocultar nomes' : 'Mostrar nomes';
+            }}
+
+            function addLabelToggle() {{
+                const control = L.control({{ position: 'topleft' }});
+                control.onAdd = () => {{
+                    const button = L.DomUtil.create('button', 'rs-label-toggle');
+                    button.type = 'button';
+                    L.DomEvent.disableClickPropagation(button);
+                    L.DomEvent.on(button, 'click', (event) => {{
+                        L.DomEvent.preventDefault(event);
+                        labelsVisible = !labelsVisible;
+                        updateLabelToggle(button);
+                    }});
+                    updateLabelToggle(button);
+                    return button;
+                }};
+                control.addTo(map);
+            }}
+
             function addLabels(layer, labelAccessor) {{
                 layer.eachLayer((item) => {{
                     const label = labelAccessor(item.feature.properties);
@@ -1479,6 +1910,9 @@ def render_demo_mapa() -> None:
             }}));
             addLegend();
             addUnidentifiedBox();
+            addLabelToggle();
+            addLeadLegend();
+            renderLeadPins();
             viewMode = 'rmr';
             updateBairroFilter();
             renderMunicipios();
