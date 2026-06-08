@@ -4,7 +4,9 @@ from datetime import datetime
 
 from nicegui import ui
 
-from src.models import InstalacaoSolar, Lead
+from src.auth import PerfilConflitanteError, validar_email_para_profile
+from src.database import db
+from src.models import InstalacaoSolar, Lead, Usuario
 
 
 STATUS_KANBAN = ['Novo', 'Em Contato', 'Concluído']
@@ -31,11 +33,14 @@ def _obter_instalacao_cliente(lead: Lead) -> InstalacaoSolar | None:
     return InstalacaoSolar.select().where(InstalacaoSolar.usuario == lead.cliente_id).first()
 
 
-def _obter_leads_por_status() -> dict[str, list[Lead]]:
+def _obter_leads_por_status(empresa_id: int) -> dict[str, list[Lead]]:
     leads_por_status = {status: [] for status in STATUS_KANBAN}
     leads = (
         Lead.select()
-        .where(Lead.status.in_(STATUS_KANBAN))
+        .where(
+            (Lead.status.in_(STATUS_KANBAN))
+            & ((Lead.empresa_responsavel.is_null(True)) | (Lead.empresa_responsavel == empresa_id))
+        )
         .order_by(Lead.criado_em.desc())
     )
     for lead in leads:
@@ -50,16 +55,99 @@ def _mudar_status(lead: Lead, novo_status: str) -> None:
     lead.save()
 
 
-def render_kanban() -> None:
+def _obter_ou_criar_cliente_b2c(email: str, nome: str, telefone: str | None) -> tuple[Usuario, bool]:
+    email = validar_email_para_profile(email, 'customer')
+    usuario = Usuario.get_or_none(Usuario.email == email)
+    if usuario:
+        atualizado = False
+        if nome and usuario.nome != nome:
+            usuario.nome = nome
+            atualizado = True
+        if telefone and not usuario.telefone:
+            usuario.telefone = telefone
+            atualizado = True
+        if atualizado:
+            usuario.save()
+        return usuario, False
+
+    usuario = Usuario.create(
+        firebase_uid=None,
+        nome=nome or email.split('@', 1)[0],
+        email=email,
+        telefone=telefone,
+        tipo_perfil='B2C',
+    )
+    return usuario, True
+
+
+def _criar_lead_manual(
+    empresa_id: int,
+    email: str,
+    nome: str,
+    telefone: str | None,
+    descricao: str | None,
+) -> tuple[Lead, bool]:
+    empresa = Usuario.get_by_id(empresa_id)
+    with db.atomic():
+        cliente, criado = _obter_ou_criar_cliente_b2c(email, nome, telefone)
+        lead = Lead.create(
+            cliente=cliente,
+            empresa_responsavel=empresa,
+            nome_contato=nome or cliente.nome,
+            telefone_contato=telefone or cliente.telefone,
+            origem='Kanban B2B - Lead manual',
+            descricao_servico=descricao or 'Lead cadastrado manualmente pelo integrador.',
+            status='Novo',
+        )
+    return lead, criado
+
+
+def render_kanban(auth: dict) -> None:
     container = ui.column().classes('w-full gap-6 p-6')
+    empresa_id = int(auth['usuario_id'])
 
     def renderizar() -> None:
         container.clear()
-        leads_por_status = _obter_leads_por_status()
+        leads_por_status = _obter_leads_por_status(empresa_id)
         total_leads = sum(len(leads) for leads in leads_por_status.values())
 
         with container:
             ui.label('Kanban de leads').classes('text-2xl font-bold text-slate-900')
+            with ui.card().classes('w-full rounded-2xl border border-slate-200 bg-white p-5 gap-4'):
+                ui.label('Adicionar lead').classes('text-lg font-bold text-slate-900')
+                ui.label(
+                    'Informe o e-mail do cliente. Se ele ainda nao existir, criaremos uma conta B2C para manter o vinculo.'
+                ).classes('text-sm text-slate-600')
+                with ui.row().classes('w-full gap-3 items-start max-[900px]:flex-col'):
+                    lead_email = ui.input('E-mail do cliente *').props('outlined').classes('flex-1 min-w-64')
+                    lead_nome = ui.input('Nome do contato').props('outlined').classes('flex-1 min-w-64')
+                    lead_telefone = ui.input('Telefone').props('outlined').classes('w-56 max-[900px]:w-full')
+                lead_descricao = ui.textarea('Descricao / necessidade').props('outlined autogrow').classes('w-full')
+
+                def adicionar_lead() -> None:
+                    email = str(lead_email.value or '').strip()
+                    nome = str(lead_nome.value or '').strip()
+                    telefone = str(lead_telefone.value or '').strip() or None
+                    descricao = str(lead_descricao.value or '').strip() or None
+                    if not email:
+                        ui.notify('Informe o e-mail do cliente.', color='warning')
+                        return
+                    try:
+                        lead, cliente_criado = _criar_lead_manual(
+                            empresa_id, email, nome, telefone, descricao
+                        )
+                    except PerfilConflitanteError as exc:
+                        ui.notify(str(exc), color='negative')
+                        return
+                    except Exception as exc:
+                        ui.notify(f'Nao foi possivel criar o lead: {exc}', color='negative')
+                        return
+                    acao_cliente = 'Cliente B2C criado e lead' if cliente_criado else 'Lead'
+                    ui.notify(f'{acao_cliente} #{lead.id} adicionado ao Kanban.', color='positive')
+                    renderizar()
+
+                ui.button('Adicionar lead', on_click=adicionar_lead).props('color=primary').classes('rounded-xl self-start')
+
             with ui.row().classes('w-full gap-4 max-[900px]:flex-col'):
                 with ui.card().classes('flex-1 p-5 rounded-2xl'):
                     ui.label('Leads ativos').classes('text-sm text-slate-500')
