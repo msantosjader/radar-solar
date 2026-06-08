@@ -1136,6 +1136,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyshp"
+version = "3.0.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/09/0ee60f56e34c6df34e30d302c29ca67b115a7a76ce1acf21f67924aec9a3/pyshp-3.0.12.tar.gz", hash = "sha256:517f6d80be444f3e85ed3f08b004108845f535dee3efffc2fbca1ba93d22151d", size = 2209829, upload-time = "2026-06-05T18:56:03.08Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/09/e27388e25d5ba562b19b3893140469355150cfa9d49a4184e5033d7464c9/pyshp-3.0.12-py3-none-any.whl", hash = "sha256:f5f55548700e775e09479781a03a0b82aa46bef0270aa2980f86212565ce9092", size = 65235, upload-time = "2026-06-05T18:56:01.876Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -1250,6 +1259,7 @@ dependencies = [
     { name = "pandas" },
     { name = "peewee" },
     { name = "pyarrow" },
+    { name = "pyshp" },
 ]
 
 [package.metadata]
@@ -1258,6 +1268,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "peewee", specifier = ">=4.0.6" },
     { name = "pyarrow", specifier = ">=24.0.0" },
+    { name = "pyshp", specifier = ">=3.0.12" },
 ]
 
 [[package]]
