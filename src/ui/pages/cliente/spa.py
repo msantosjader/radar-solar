@@ -47,7 +47,7 @@ def render_cliente_spa(auth: dict, initial_section: str) -> None:
     ''')
     ui.query('body').classes(add='rs-private-body')
 
-    drawer = ui.left_drawer(top_corner=True, bottom_corner=True).classes('bg-orange-600 text-white w-72 px-4 py-5')
+    drawer = ui.left_drawer(value=True, top_corner=True, bottom_corner=True).classes('bg-orange-600 text-white w-72 px-4 py-5')
     with drawer:
         with ui.column().classes('w-full gap-6'):
             with ui.row().classes('items-center gap-3'):

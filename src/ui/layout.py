@@ -47,7 +47,7 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
     ''')
     ui.query('body').classes(add='rs-private-body')
 
-    drawer = ui.left_drawer(top_corner=True, bottom_corner=True).classes(f'{drawer_classes} w-72 px-4 py-5')
+    drawer = ui.left_drawer(value=True, top_corner=True, bottom_corner=True).classes(f'{drawer_classes} w-72 px-4 py-5')
     with drawer:
         with ui.column().classes('w-full gap-6'):
             with ui.row().classes('items-center gap-3'):
