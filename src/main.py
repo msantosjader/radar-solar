@@ -134,7 +134,7 @@ def empresa_kanban():
         return
     apply_theme()
     render_private_shell(auth, '/empresa/kanban', 'Kanban comercial', 'Acompanhamento do pipeline de atendimento.')
-    render_kanban()
+    render_kanban(auth)
 
 
 @ui.page('/logout')
