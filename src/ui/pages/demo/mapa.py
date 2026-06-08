@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from fastapi import Request as FastAPIRequest
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import pandas as pd
 import shapefile
 from nicegui import app, ui
@@ -699,6 +699,16 @@ def carregar_leads_mapa(data: dict) -> list[dict]:
     return pins
 
 
+@lru_cache(maxsize=1)
+def carregar_mapa_base_json() -> str:
+    return json.dumps(carregar_geojson_rmr(), ensure_ascii=False)
+
+
+def montar_mapa_json(leads: list[dict] | None = None) -> str:
+    base_json = carregar_mapa_base_json()
+    return f'{base_json[:-1]},"leads":{json.dumps(leads or [], ensure_ascii=False)}}}'
+
+
 def carregar_mapa_data(include_leads: bool = False) -> dict:
     base = carregar_geojson_rmr()
     data = {**base}
@@ -707,8 +717,12 @@ def carregar_mapa_data(include_leads: bool = False) -> dict:
 
 
 @app.get('/api/demo/mapa-rmr')
-def api_demo_mapa_rmr() -> JSONResponse:
-    return JSONResponse(carregar_mapa_data(include_leads=False))
+def api_demo_mapa_rmr() -> Response:
+    return Response(
+        montar_mapa_json(),
+        media_type='application/json',
+        headers={'Cache-Control': 'public, max-age=300'},
+    )
 
 
 @app.get('/api/empresa/mapa-rmr')
@@ -720,7 +734,12 @@ def api_empresa_mapa_rmr(request: FastAPIRequest) -> JSONResponse:
             MAPA_EMPRESA_TOKENS.pop(stored_token, None)
     if not token or MAPA_EMPRESA_TOKENS.get(token, 0) < now:
         return JSONResponse({'error': 'Nao autorizado'}, status_code=401)
-    return JSONResponse(carregar_mapa_data(include_leads=True))
+    data = carregar_geojson_rmr()
+    return Response(
+        montar_mapa_json(carregar_leads_mapa(data)),
+        media_type='application/json',
+        headers={'Cache-Control': 'no-store'},
+    )
 
 
 def render_demo_mapa(show_header: bool = True, include_leads: bool = False) -> None:
