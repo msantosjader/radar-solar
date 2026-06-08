@@ -91,7 +91,7 @@ def render_login(selected_profile: str = 'customer'):
                     try:
                         current_email = validar_email_para_profile(current_email, active_profile['value'])
                     except PerfilConflitanteError as exc:
-                        ui.notify(str(exc), type='negative')
+                        ui.notify(str(exc), type='warning')
                         return
 
                     result = await ui.run_javascript(
