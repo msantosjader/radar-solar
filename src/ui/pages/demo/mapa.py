@@ -17,7 +17,7 @@ import pandas as pd
 import shapefile
 from nicegui import app, ui
 
-from src.models import InstalacaoSolar, Lead
+from src.models import CnpjCache, InstalacaoSolar, Lead
 from src.normalize import normalizar_inversor, normalizar_modulo
 
 RMR_MUNICIPIOS = {
@@ -699,14 +699,129 @@ def carregar_leads_mapa(data: dict) -> list[dict]:
     return pins
 
 
-@lru_cache(maxsize=1)
+def carregar_pjs_mapa(data: dict) -> list[dict]:
+    bairros_por_cep_exato, bairros_por_prefixo = carregar_bairros_por_cep()
+
+    instalacoes = []
+    for lista in data['instalacoesPorMunicipio'].values():
+        instalacoes.extend(lista)
+
+    pjs = [inst for inst in instalacoes if inst.get('tipo') == 'PJ' and inst.get('cpf_cnpj')]
+    pins: list[dict] = []
+    cnpj_cache: dict[str, CnpjCache] = {
+        c.cnpj: c for c in CnpjCache.select()
+    }
+
+    for inst in pjs:
+        cnpj = ''.join(ch for ch in inst['cpf_cnpj'] if ch.isdigit())
+        if len(cnpj) != 14:
+            continue
+        cache = cnpj_cache.get(cnpj)
+        logradouro_rel = ''
+        numero_rel = ''
+        bairro_rel = ''
+        endereco_rel = inst.get('municipio', '')
+        cep = inst.get('cep', '')
+        if cache and cache.logradouro:
+            logradouro_rel = cache.logradouro or ''
+            numero_rel = cache.numero or ''
+            bairro_rel = cache.bairro or ''
+            endereco_rel = ', '.join(p for p in [logradouro_rel, numero_rel, bairro_rel, cache.cidade or '', cache.estado or ''] if p)
+            cep = cache.cep or cep
+        else:
+            bairro_rel = inst.get('bairro', '')
+            if bairro_rel and bairro_rel != 'Nao identificado':
+                endereco_rel = f'{inst["municipio"]}, {bairro_rel}'
+
+        lat = lng = None
+        if cache and cache.latitude and cache.longitude:
+            lat = cache.latitude
+            lng = cache.longitude
+        else:
+            municipio_codigo = inst.get('municipio_codigo', '')
+            cep_digits = ''.join(ch for ch in cep if ch.isdigit())
+            prefixo = inst.get('cep_prefixo', '')
+            lat, lng = _estimar_coordenada_por_cep(
+                municipio_codigo, cep_digits, prefixo,
+                bairros_por_cep_exato, bairros_por_prefixo, data,
+            )
+
+        if not lat or not lng:
+            continue
+
+        pins.append({
+            'codigo': inst['codigo'],
+            'titular': inst['titular'],
+            'cnpj': cnpj,
+            'endereco': endereco_rel,
+            'logradouro': logradouro_rel,
+            'numero': numero_rel,
+            'bairro': bairro_rel,
+            'cep': cep,
+            'municipio': inst['municipio'],
+            'uf': (cache.estado if cache else None) or '',
+            'data_instalacao': inst.get('data_conexao', ''),
+            'qtd_modulos': inst.get('qtd_modulos', 0),
+            'potencia_kw': inst['potencia_kw'],
+            'telefone1': cache.telefone1 if cache else None,
+            'telefone2': cache.telefone2 if cache else None,
+            'email': cache.email if cache else None,
+            'lat': float(lat),
+            'lng': float(lng),
+        })
+
+    return pins
+
+
+def _estimar_coordenada_por_cep(
+    municipio_codigo: str, cep_digits: str, prefixo: str,
+    bairros_por_cep_exato: dict, bairros_por_prefixo: dict, data: dict,
+) -> tuple[float | None, float | None]:
+    candidatos: set[str] = set()
+    if municipio_codigo and len(cep_digits) == 8:
+        candidatos = bairros_por_cep_exato.get(municipio_codigo, {}).get(cep_digits, set())
+    if not candidatos and municipio_codigo and len(prefixo) >= 5:
+        candidatos = bairros_por_prefixo.get(municipio_codigo, {}).get(prefixo[:5], set())
+
+    bairros = data.get('bairrosPorMunicipio', {}).get(municipio_codigo, {}).get('features', [])
+    if candidatos:
+        bairros_por_key = {
+            _bairro_key(f['properties']['nome']): f
+            for f in bairros if f['properties']['tipo'] == 'bairro'
+        }
+        for candidato in candidatos:
+            feature = bairros_por_key.get(_bairro_key(candidato))
+            if not feature:
+                continue
+            c = _shape_centroid(feature['geometry'])
+            if c:
+                return c
+
+    for feature in bairros:
+        if feature['properties'].get('tipo') == 'bairro_fallback':
+            c = _shape_centroid(feature['geometry'])
+            if c:
+                return c
+
+    for feature in data['municipios']['features']:
+        if feature['properties']['codigo'] == municipio_codigo:
+            c = _shape_centroid(feature['geometry'])
+            if c:
+                return c
+
+    return None, None
+
+
 def carregar_mapa_base_json() -> str:
     return json.dumps(carregar_geojson_rmr(), ensure_ascii=False)
 
 
-def montar_mapa_json(leads: list[dict] | None = None) -> str:
-    base_json = carregar_mapa_base_json()
-    return f'{base_json[:-1]},"leads":{json.dumps(leads or [], ensure_ascii=False)}}}'
+def montar_mapa_json(leads: list[dict] | None = None, pjs: list[dict] | None = None) -> str:
+    base_json = carregar_mapa_base_json()[:-1]
+    extra = []
+    extra.append(f'"leads":{json.dumps(leads or [], ensure_ascii=False)}')
+    extra.append(f'"pjs":{json.dumps(pjs or [], ensure_ascii=False)}')
+    return f'{base_json},{",".join(extra)}}}'
 
 
 def carregar_mapa_data(include_leads: bool = False) -> dict:
@@ -718,8 +833,9 @@ def carregar_mapa_data(include_leads: bool = False) -> dict:
 
 @app.get('/api/demo/mapa-rmr')
 def api_demo_mapa_rmr() -> Response:
+    data = carregar_geojson_rmr()
     return Response(
-        montar_mapa_json(),
+        montar_mapa_json(pjs=carregar_pjs_mapa(data)),
         media_type='application/json',
         headers={'Cache-Control': 'public, max-age=300'},
     )
@@ -736,7 +852,10 @@ def api_empresa_mapa_rmr(request: FastAPIRequest) -> JSONResponse:
         return JSONResponse({'error': 'Nao autorizado'}, status_code=401)
     data = carregar_geojson_rmr()
     return Response(
-        montar_mapa_json(carregar_leads_mapa(data)),
+        montar_mapa_json(
+            leads=carregar_leads_mapa(data),
+            pjs=carregar_pjs_mapa(data),
+        ),
         media_type='application/json',
         headers={'Cache-Control': 'no-store'},
     )
@@ -1269,6 +1388,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 'Concluído': 'Concluido',
             }};
             const leadLayer = L.layerGroup([], {{ pane: 'leadPane' }}).addTo(map);
+            const pjLayer = L.layerGroup([], {{ pane: 'leadPane' }});
 
             let activeLayer = null;
             let viewMode = 'rmr';
@@ -1301,6 +1421,18 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                     '"': '&quot;',
                     "'": '&#39;',
                 }})[char]);
+            }}
+
+            function formatCnpj(value) {{
+                const digits = String(value ?? '').replace(/\\D/g, '');
+                if (digits.length !== 14) return escapeHtml(value);
+                return `${{digits.slice(0, 2)}}.${{digits.slice(2, 5)}}.${{digits.slice(5, 8)}}/${{digits.slice(8, 12)}}-${{digits.slice(12)}}`;
+            }}
+
+            function formatCep(value) {{
+                const digits = String(value ?? '').replace(/\\D/g, '');
+                if (digits.length !== 8) return escapeHtml(value);
+                return `${{digits.slice(0, 2)}}.${{digits.slice(2, 5)}}-${{digits.slice(5)}}`;
             }}
 
             function computeChartData(installations) {{
@@ -1709,6 +1841,50 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 }});
             }}
 
+            function renderPjPins() {{
+                pjLayer.clearLayers();
+                (data.pjs || []).forEach((pj) => {{
+                    const lat = Number(pj.lat);
+                    const lng = Number(pj.lng);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                    const icon = L.divIcon({{
+                        className: '',
+                        html: `<div class="rs-lead-pin" style="--lead-color:#7c3aed"></div>`,
+                        iconSize: [30, 42],
+                        iconAnchor: [15, 39],
+                        popupAnchor: [0, -38],
+                    }});
+                    const marker = L.marker([lat, lng], {{ icon, pane: 'leadPane', zIndexOffset: 9000 }});
+                    const logradouro = pj.logradouro
+                        ? `${{escapeHtml(pj.logradouro)}}${{pj.numero ? ', ' + escapeHtml(pj.numero) : ''}}`
+                        : '-';
+                    const cidadeUf = pj.municipio
+                        ? `${{escapeHtml(String(pj.municipio).toUpperCase())}}${{pj.uf ? '/' + escapeHtml(String(pj.uf).toUpperCase()) : ''}}`
+                        : '-';
+                    const telefone = pj.telefone1
+                        ? `${{escapeHtml(pj.telefone1)}}${{pj.telefone2 ? ' / ' + escapeHtml(pj.telefone2) : ''}}`
+                        : '-';
+                    const modulosPotencia = `${{Number(pj.qtd_modulos || 0).toLocaleString('pt-BR')}} mod / ${{Number(pj.potencia_kw || 0).toLocaleString('pt-BR')}} kW`;
+                    marker.bindPopup(`
+                        <div style="font-size:13px;line-height:1.6">
+                        <strong>${{escapeHtml(pj.codigo)}}</strong><br>
+                        ${{escapeHtml(pj.titular)}}<br>
+                        ${{formatCnpj(pj.cnpj)}}<br>
+                        ${{logradouro}}<br>
+                        ${{cidadeUf}}<br>
+                        ${{pj.cep ? formatCep(pj.cep) : '-'}}<br>
+                        ${{pj.data_instalacao ? escapeHtml(pj.data_instalacao) : '-'}}<br>
+                        ${{modulosPotencia}}<br>
+                        ${{telefone}}<br>
+                        ${{pj.email ? escapeHtml(pj.email) : '-'}}
+                        </div>
+                    `);
+                    marker.addTo(pjLayer);
+                }});
+            }}
+
+            let pjVisible = false;
+
             function addLeadLegend() {{
                 if (!(data.leads || []).length) return;
                 const legend = L.control({{ position: 'bottomleft' }});
@@ -1737,16 +1913,38 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             function addLabelToggle() {{
                 const control = L.control({{ position: 'topleft' }});
                 control.onAdd = () => {{
-                    const button = L.DomUtil.create('button', 'rs-label-toggle');
-                    button.type = 'button';
-                    L.DomEvent.disableClickPropagation(button);
-                    L.DomEvent.on(button, 'click', (event) => {{
+                    const container = L.DomUtil.create('div', 'rs-label-toggle-group');
+                    L.DomEvent.disableClickPropagation(container);
+
+                    const labelBtn = L.DomUtil.create('button', 'rs-label-toggle');
+                    labelBtn.type = 'button';
+                    L.DomEvent.on(labelBtn, 'click', (event) => {{
                         L.DomEvent.preventDefault(event);
                         labelsVisible = !labelsVisible;
-                        updateLabelToggle(button);
+                        updateLabelToggle(labelBtn);
                     }});
-                    updateLabelToggle(button);
-                    return button;
+                    updateLabelToggle(labelBtn);
+                    container.appendChild(labelBtn);
+
+                    if ((data.pjs || []).length) {{
+                        const pjBtn = L.DomUtil.create('button', 'rs-label-toggle');
+                        pjBtn.type = 'button';
+                        pjBtn.style.marginTop = '4px';
+                        L.DomEvent.on(pjBtn, 'click', (event) => {{
+                            L.DomEvent.preventDefault(event);
+                            pjVisible = !pjVisible;
+                            if (pjVisible) {{
+                                pjLayer.addTo(map);
+                            }} else {{
+                                map.removeLayer(pjLayer);
+                            }}
+                            pjBtn.textContent = pjVisible ? 'Ocultar empresas' : 'Mostrar empresas';
+                        }});
+                        pjBtn.textContent = 'Mostrar empresas';
+                        container.appendChild(pjBtn);
+                    }}
+
+                    return container;
                 }};
                 control.addTo(map);
             }}
@@ -1949,6 +2147,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             addBackControl();
             addLeadLegend();
             renderLeadPins();
+            renderPjPins();
             viewMode = 'rmr';
             updateBairroFilter();
             renderMunicipios();

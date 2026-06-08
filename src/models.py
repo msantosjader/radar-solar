@@ -99,10 +99,29 @@ class Lead(BaseModel):
     status = CharField(default='Novo')
 
 
+class CnpjCache(BaseModel):
+    cnpj = CharField(unique=True)
+    razao_social = CharField(null=True)
+    nome_fantasia = CharField(null=True)
+    logradouro = CharField(null=True)
+    numero = CharField(null=True)
+    complemento = CharField(null=True)
+    cep = CharField(null=True)
+    bairro = CharField(null=True)
+    cidade = CharField(null=True)
+    estado = CharField(max_length=2, null=True)
+    telefone1 = CharField(null=True)
+    telefone2 = CharField(null=True)
+    email = CharField(null=True)
+    latitude = FloatField(null=True)
+    longitude = FloatField(null=True)
+    fetched_at = DateTimeField(default=datetime.now)
+
+
 def criar_tabelas():
     """Executa a criação física das tabelas dentro do ficheiro SQLite"""
     with db:
-        db.create_tables([Usuario, EmpresaPerfil, InstalacaoSolar, Fatura, Lead])
+        db.create_tables([Usuario, EmpresaPerfil, InstalacaoSolar, Fatura, Lead, CnpjCache])
         migrar_lead_empresa_responsavel_nullable()
 
 
