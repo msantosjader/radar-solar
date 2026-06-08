@@ -1,5 +1,6 @@
 from nicegui import ui
 
+from src.auth import PerfilConflitanteError, validar_email_para_profile
 from src.ui.pages.public import inject_firebase_auth, inject_public_styles
 
 
@@ -86,6 +87,11 @@ def render_login(selected_profile: str = 'customer'):
                     current_email = (email.value or '').strip()
                     if not current_email:
                         ui.notify('Informe o e-mail para receber o link.', type='warning')
+                        return
+                    try:
+                        current_email = validar_email_para_profile(current_email, active_profile['value'])
+                    except PerfilConflitanteError as exc:
+                        ui.notify(str(exc), type='negative')
                         return
 
                     result = await ui.run_javascript(
