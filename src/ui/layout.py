@@ -33,8 +33,8 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
     profile = auth['profile']
     items = NAV_ITEMS[profile]
     drawer_classes = {
-        'customer': 'bg-slate-900 text-white',
-        'company': 'bg-orange-600 text-white',
+        'customer': 'bg-orange-600 text-white',
+        'company': 'bg-slate-900 text-white',
     }[profile]
     drawer_caption = 'Area autenticada' if profile == 'customer' else 'Integrador solar'
 
