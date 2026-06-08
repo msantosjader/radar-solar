@@ -45,12 +45,14 @@ def rota_inicial(profile: str | None) -> str:
     return PROFILE_TO_HOME[normalizar_profile(profile)]
 
 
-def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome: str | None = None) -> tuple[Usuario, bool]:
-    profile = normalizar_profile(profile)
-    email = email.strip().lower()
-    tipo_perfil = PROFILE_TO_TIPO[profile]
-    nome_base = (nome or '').strip() or email.split('@', 1)[0]
+def normalizar_email(email: str) -> str:
+    return email.strip().lower()
 
+
+def validar_email_para_profile(email: str, profile: str) -> str:
+    email = normalizar_email(email)
+    profile = normalizar_profile(profile)
+    tipo_perfil = PROFILE_TO_TIPO[profile]
     usuario_existente = Usuario.get_or_none(Usuario.email == email)
     if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
         perfil_existente = TIPO_TO_LABEL.get(usuario_existente.tipo_perfil, usuario_existente.tipo_perfil)
@@ -59,6 +61,14 @@ def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome
             f'Este e-mail ja esta cadastrado como {perfil_existente}. '
             f'Use outro e-mail para acessar como {perfil_solicitado}.'
         )
+    return email
+
+
+def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome: str | None = None) -> tuple[Usuario, bool]:
+    profile = normalizar_profile(profile)
+    email = validar_email_para_profile(email, profile)
+    tipo_perfil = PROFILE_TO_TIPO[profile]
+    nome_base = (nome or '').strip() or email.split('@', 1)[0]
 
     usuario, created = Usuario.get_or_create(
         email=email,
