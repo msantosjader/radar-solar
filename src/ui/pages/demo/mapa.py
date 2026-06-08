@@ -10,6 +10,7 @@ import pandas as pd
 import shapefile
 from nicegui import ui
 
+from src.normalize import normalizar_inversor, normalizar_modulo
 
 RMR_MUNICIPIOS = {
     '2600054',  # Abreu e Lima
@@ -188,7 +189,7 @@ def carregar_bairros_por_cep() -> tuple[dict[str, dict[str, set[str]]], dict[str
 
 
 @lru_cache(maxsize=1)
-def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]]:
+def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]], dict]:
     dados_titular = carregar_dados_titular()
     colunas = [
         'municipio',
@@ -203,6 +204,13 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
         'bairro_estimado',
         'cep_original',
         'cep_prefixo',
+        'fabricante_modulo',
+        'fabricante_inversor',
+        'modalidade',
+        'qtd_ucs_recebem_credito',
+        'potencia_modulos_kw',
+        'potencia_inversores_kw',
+        'area_arranjo_m2',
     ]
     df = pd.read_parquet(INSTALACOES_PARQUET, columns=colunas)
     df['potencia_kw'] = pd.to_numeric(df['potencia_kw'], errors='coerce').fillna(0)
@@ -221,6 +229,8 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
         for row in grupo_ordenado.itertuples(index=False):
             codigo = _text(row.cod_empreendimento)
             dados_extra = dados_titular.get(codigo, {})
+            data_conexao_parsed = pd.to_datetime(row.data_conexao, errors='coerce')
+            data_conexao_ano = data_conexao_parsed.year if pd.notna(data_conexao_parsed) else None
             instalacoes.append({
                 'codigo': _text(row.cod_empreendimento),
                 'cpf_cnpj': dados_extra.get('cpf_cnpj', ''),
@@ -233,19 +243,88 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
                 'tipo': _text(row.tipo_consumidor),
                 'porte': _text(row.porte),
                 'data_conexao': _date_br(row.data_conexao),
+                'data_conexao_ano': data_conexao_ano,
                 'potencia_kw': round(_number(row.potencia_kw), 2),
                 'qtd_modulos': int(_number(row.qtd_modulos)),
+                'fabricante_modulo': normalizar_modulo(_text(row.fabricante_modulo)),
+                'fabricante_inversor': normalizar_inversor(_text(row.fabricante_inversor)),
+                'qtd_uc_credito': int(_number(row.qtd_ucs_recebem_credito)),
+                'potencia_modulos_kw': round(_number(row.potencia_modulos_kw), 2),
+                'potencia_inversores_kw': round(_number(row.potencia_inversores_kw), 2),
+                'area_arranjo_m2': round(_number(row.area_arranjo_m2), 2),
                 'cep': _text(row.cep_original),
                 'cep_prefixo': _text(row.cep_prefixo),
             })
         instalacoes_por_municipio[municipio] = instalacoes
 
-    return agregados, instalacoes_por_municipio
+    serie_anual = (
+        df['data_conexao'].dt.year.dropna().astype(int).value_counts().sort_index()
+    )
+    df['fabricante_modulo_norm'] = df['fabricante_modulo'].apply(
+        lambda v: normalizar_modulo(_text(v)) if pd.notna(v) else ''
+    )
+    df['fabricante_inversor_norm'] = df['fabricante_inversor'].apply(
+        lambda v: normalizar_inversor(_text(v)) if pd.notna(v) else ''
+    )
+    fabricantes_modulo = (
+        df.loc[df['fabricante_modulo_norm'] != '', 'fabricante_modulo_norm']
+        .value_counts().head(15)
+    )
+    fabricantes_inversor = (
+        df.loc[df['fabricante_inversor_norm'] != '', 'fabricante_inversor_norm']
+        .value_counts().head(15)
+    )
+
+    tipo_counts = df['tipo_consumidor'].value_counts()
+    classe_counts = df['classe_consumo'].value_counts()
+    porte_counts = df['porte'].value_counts()
+    modalidade_counts = df['modalidade'].value_counts()
+
+    serie_por_modalidade = df.groupby([df['data_conexao'].dt.year, 'modalidade']).size().unstack(fill_value=0)
+    serie_por_modalidade.index = serie_por_modalidade.index.astype(int)
+    serie_por_modalidade_labels = [str(y) for y in serie_por_modalidade.index.tolist()]
+    serie_por_modalidade_datasets = [
+        {'label': col, 'data': [int(v) for v in serie_por_modalidade[col].values.tolist()]}
+        for col in serie_por_modalidade.columns
+    ]
+
+    charts = {
+        'seriePorModalidade': {
+            'labels': serie_por_modalidade_labels,
+            'datasets': serie_por_modalidade_datasets,
+        },
+        'porTipoPF_PJ': {
+            'labels': tipo_counts.index.tolist(),
+            'values': [int(v) for v in tipo_counts.values.tolist()],
+        },
+        'topFabricantesModulo': {
+            'labels': fabricantes_modulo.index.tolist(),
+            'values': [int(v) for v in fabricantes_modulo.values.tolist()],
+        },
+        'topFabricantesInversor': {
+            'labels': fabricantes_inversor.index.tolist(),
+            'values': [int(v) for v in fabricantes_inversor.values.tolist()],
+        },
+        'porClasse': {
+            'labels': classe_counts.index.tolist(),
+            'values': [int(v) for v in classe_counts.values.tolist()],
+        },
+        'porPorte': {
+            'labels': porte_counts.index.tolist(),
+            'values': [int(v) for v in porte_counts.values.tolist()],
+        },
+        'porModalidade': {
+            'labels': modalidade_counts.index.tolist(),
+            'values': [int(v) for v in modalidade_counts.values.tolist()],
+        },
+    }
+
+    return agregados, instalacoes_por_municipio, charts
 
 
 @lru_cache(maxsize=1)
 def carregar_geojson_rmr() -> dict:
-    agregados_aneel, instalacoes_por_municipio = carregar_instalacoes_aneel()
+    agregados_aneel, instalacoes_por_municipio, charts = carregar_instalacoes_aneel()
     bairros_por_cep_exato, bairros_por_prefixo = carregar_bairros_por_cep()
     municipios = []
     municipios_por_codigo = {}
@@ -317,58 +396,82 @@ def carregar_geojson_rmr() -> dict:
     for bairros in bairros_por_municipio.values():
         bairros.sort(key=lambda item: item['properties']['nome'])
 
-    bairros_validos_por_municipio = {
-        codigo: {
-            _bairro_key(feature['properties']['nome']): feature['properties']['nome']
-            for feature in features
-            if feature['properties']['tipo'] == 'bairro'
+        mascaras_4_por_municipio: dict[str, dict[str, set[str]]] = {}
+        for codigo_municipio, prefixos in bairros_por_prefixo.items():
+            mascaras_4: dict[str, set[str]] = {}
+            for prefixo_5, bairros in prefixos.items():
+                prefixo_4 = prefixo_5[:4]
+                mascaras_4.setdefault(prefixo_4, set()).update(bairros)
+            mascaras_4_por_municipio[codigo_municipio] = mascaras_4
+
+        bairros_validos_por_municipio = {
+            codigo: {
+                _bairro_key(feature['properties']['nome']): feature['properties']['nome']
+                for feature in features
+                if feature['properties']['tipo'] == 'bairro'
+            }
+            for codigo, features in bairros_por_municipio.items()
         }
-        for codigo, features in bairros_por_municipio.items()
-    }
-    bairro_metricas: dict[str, dict[str, dict]] = {codigo: {} for codigo in RMR_MUNICIPIOS}
+        bairro_metricas: dict[str, dict[str, dict]] = {codigo: {} for codigo in RMR_MUNICIPIOS}
 
-    for municipio_nome, instalacoes in instalacoes_por_municipio.items():
-        municipio = next((item for item in municipios if item['properties']['nome'] == municipio_nome), None)
-        if not municipio:
-            continue
-        municipio_codigo = municipio['properties']['codigo']
-        bairros_validos = bairros_validos_por_municipio.get(municipio_codigo, {})
-        ceps_exatos_municipio = bairros_por_cep_exato.get(municipio_codigo, {})
-        prefixos_municipio = bairros_por_prefixo.get(municipio_codigo, {})
-        fallback_nome = municipio['properties']['nome'] if not bairros_validos else 'Nao identificado'
+        for municipio_nome, instalacoes in instalacoes_por_municipio.items():
+            municipio = next((item for item in municipios if item['properties']['nome'] == municipio_nome), None)
+            if not municipio:
+                continue
+            municipio_codigo = municipio['properties']['codigo']
+            bairros_validos = bairros_validos_por_municipio.get(municipio_codigo, {})
+            ceps_exatos_municipio = bairros_por_cep_exato.get(municipio_codigo, {})
+            prefixos_municipio = bairros_por_prefixo.get(municipio_codigo, {})
+            mascaras_4_municipio = mascaras_4_por_municipio.get(municipio_codigo, {})
+            fallback_nome = municipio['properties']['nome'] if not bairros_validos else 'Nao identificado'
 
-        for instalacao in instalacoes:
-            cep_original = instalacao['cep']
-            cep_mascarado = '***' in cep_original
-            cep_exato = ''.join(char for char in cep_original if char.isdigit()) if not cep_mascarado else ''
-            candidatos_dne = ceps_exatos_municipio.get(cep_exato, set()) if len(cep_exato) == 8 else set()
-            if not candidatos_dne and cep_mascarado:
-                candidatos_dne = prefixos_municipio.get(instalacao['cep_prefixo'], set())
-            bairros_possiveis = sorted(
-                {
+            for instalacao in instalacoes:
+                cep_original = instalacao['cep']
+                cep_mascarado = '***' in cep_original
+                cep_exato = ''.join(char for char in cep_original if char.isdigit()) if not cep_mascarado else ''
+                candidatos_dne = ceps_exatos_municipio.get(cep_exato, set()) if len(cep_exato) == 8 else set()
+                if not candidatos_dne:
+                    candidatos_dne = prefixos_municipio.get(instalacao['cep_prefixo'], set())
+                if not candidatos_dne and instalacao['tipo'] == 'PJ':
+                    prefixo_4 = instalacao['cep_prefixo'][:4] if len(instalacao['cep_prefixo']) >= 4 else ''
+                    candidatos_dne = mascaras_4_municipio.get(prefixo_4, set())
+                bairros_possiveis = sorted({
                     bairros_validos[_bairro_key(nome)]
                     for nome in candidatos_dne
                     if _bairro_key(nome) in bairros_validos
-                }
-            )
+                })
+                if not bairros_possiveis:
+                    for nome in candidatos_dne:
+                        key = _bairro_key(nome)
+                        for valid_key, valid_nome in bairros_validos.items():
+                            if valid_key in key or key in valid_key:
+                                bairros_possiveis = [valid_nome]
+                                break
+                        if bairros_possiveis:
+                            break
 
-            bairro_estimado_key = _bairro_key(instalacao['bairro'])
-            if not bairros_possiveis and bairro_estimado_key in bairros_validos:
-                bairros_possiveis = [bairros_validos[bairro_estimado_key]]
+                bairro_estimado_key = _bairro_key(instalacao['bairro'])
+                if not bairros_possiveis and bairro_estimado_key in bairros_validos:
+                    bairros_possiveis = [bairros_validos[bairro_estimado_key]]
+                if not bairros_possiveis:
+                    for valid_key, valid_nome in bairros_validos.items():
+                        if valid_key in bairro_estimado_key or bairro_estimado_key in valid_key:
+                            bairros_possiveis = [valid_nome]
+                            break
 
-            if not bairros_possiveis:
-                bairros_possiveis = [fallback_nome]
+                if not bairros_possiveis:
+                    bairros_possiveis = [fallback_nome]
 
-            instalacao['bairros_possiveis'] = bairros_possiveis
-            peso = 1 / len(bairros_possiveis)
-            for bairro_nome in bairros_possiveis:
-                metricas = bairro_metricas[municipio_codigo].setdefault(
-                    bairro_nome,
-                    {'qtd_instalacoes': 0.0, 'potencia_kw': 0.0, 'qtd_modulos': 0.0},
-                )
-                metricas['qtd_instalacoes'] += peso
-                metricas['potencia_kw'] += instalacao['potencia_kw'] * peso
-                metricas['qtd_modulos'] += instalacao['qtd_modulos'] * peso
+                instalacao['bairros_possiveis'] = bairros_possiveis
+                peso = 1 / len(bairros_possiveis)
+                for bairro_nome in bairros_possiveis:
+                    metricas = bairro_metricas[municipio_codigo].setdefault(
+                        bairro_nome,
+                        {'qtd_instalacoes': 0.0, 'potencia_kw': 0.0, 'qtd_modulos': 0.0},
+                    )
+                    metricas['qtd_instalacoes'] += peso
+                    metricas['potencia_kw'] += instalacao['potencia_kw'] * peso
+                    metricas['qtd_modulos'] += instalacao['qtd_modulos'] * peso
 
     nao_identificado_por_municipio = {}
     for codigo_municipio, features in bairros_por_municipio.items():
@@ -427,6 +530,7 @@ def carregar_geojson_rmr() -> dict:
             codigo: _feature_collection(features)
             for codigo, features in bairros_por_municipio.items()
         },
+        'charts': charts,
     }
 
 
@@ -437,14 +541,15 @@ def render_demo_mapa() -> None:
     ui.add_head_html('''
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <style>
         body {
             background: #f8fafc;
         }
         #demo-mapa-rmr {
             width: 100%;
-            height: calc(100vh - 252px);
-            min-height: 560px;
+            height: calc(100vh - 420px);
+            min-height: 400px;
             border-radius: 24px;
             overflow: hidden;
             box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
@@ -548,6 +653,31 @@ def render_demo_mapa() -> None:
             color: #0f172a;
             font-size: 13px;
         }
+        .rs-chart-box {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+            padding: 20px;
+            min-height: 260px;
+        }
+        .rs-chart-box canvas {
+            width: 100% !important;
+            height: 220px !important;
+        }
+        .rs-charts-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: 1fr;
+        }
+        @media (min-width: 768px) {
+            .rs-charts-grid {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .rs-pies-grid {
+                grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+        }
         .rs-map-pagination {
             display: flex;
             flex-wrap: wrap;
@@ -572,7 +702,7 @@ def render_demo_mapa() -> None:
                 grid-template-columns: 1fr;
             }
             #demo-mapa-rmr {
-                height: 560px;
+                height: 420px;
             }
         }
     </style>
@@ -616,6 +746,46 @@ def render_demo_mapa() -> None:
 
         ui.html('''
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="rs-chart-title mb-4 text-xl font-bold text-slate-900">Graficos - RMR</div>
+            <div class="mb-2 text-xs font-bold uppercase text-slate-500">Barras</div>
+            <div class="rs-charts-grid">
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">Conexoes por ano por modalidade</div>
+                    <canvas id="chart-series-modalidade"></canvas>
+                </div>
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">Top fabricantes de modulos</div>
+                    <canvas id="chart-modulos"></canvas>
+                </div>
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">Top fabricantes de inversores</div>
+                    <canvas id="chart-inversores"></canvas>
+                </div>
+            </div>
+            <div class="mb-2 mt-4 text-xs font-bold uppercase text-slate-500">Pizzas</div>
+            <div class="rs-charts-grid rs-pies-grid">
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">PF vs PJ</div>
+                    <canvas id="chart-tipo"></canvas>
+                </div>
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">Por classe</div>
+                    <canvas id="chart-classe"></canvas>
+                </div>
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">Por porte</div>
+                    <canvas id="chart-porte"></canvas>
+                </div>
+                <div class="rs-chart-box">
+                    <div class="mb-2 text-xs font-bold uppercase text-slate-500">Modalidade</div>
+                    <canvas id="chart-modalidade"></canvas>
+                </div>
+            </div>
+        </section>
+        ''').classes('w-full')
+
+        ui.html('''
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <div class="text-xl font-bold text-slate-900">Instalacoes do municipio</div>
@@ -637,8 +807,17 @@ def render_demo_mapa() -> None:
                 <label class="text-sm font-bold text-slate-600">Porte
                     <select class="rs-filter rs-filter-porte mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"></select>
                 </label>
+                <label class="text-sm font-bold text-slate-600">Modalidade
+                    <select class="rs-filter rs-filter-modalidade mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"></select>
+                </label>
                 <label class="text-sm font-bold text-slate-600">Bairro
                     <select class="rs-filter rs-filter-bairro mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"></select>
+                </label>
+                <label class="text-sm font-bold text-slate-600">Fabricante Modulo
+                    <select class="rs-filter rs-filter-fab-mod mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"></select>
+                </label>
+                <label class="text-sm font-bold text-slate-600">Fabricante Inversor
+                    <select class="rs-filter rs-filter-fab-inv mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"></select>
                 </label>
             </div>
             <div class="rs-map-installations">
@@ -657,11 +836,14 @@ def render_demo_mapa() -> None:
                             <th>Data de Conexao</th>
                             <th>Potencia kW</th>
                             <th>Modulos</th>
+                            <th>Fab. Modulo</th>
+                            <th>Fab. Inversor</th>
+                            <th>Qtd UC Credito</th>
                             <th>CEP</th>
                         </tr>
                     </thead>
                     <tbody class="rs-installations-body">
-                        <tr><td colspan="13">Nenhum municipio selecionado.</td></tr>
+                        <tr><td colspan="16">Nenhum municipio selecionado.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -689,6 +871,24 @@ def render_demo_mapa() -> None:
             const filterTipo = document.querySelector('.rs-filter-tipo');
             const filterPorte = document.querySelector('.rs-filter-porte');
             const filterBairro = document.querySelector('.rs-filter-bairro');
+            const filterFabMod = document.querySelector('.rs-filter-fab-mod');
+            const filterFabInv = document.querySelector('.rs-filter-fab-inv');
+            const filterModalidade = document.querySelector('.rs-filter-modalidade');
+            const chartTitle = document.querySelector('.rs-chart-title');
+            const chartSeriesModalidade = document.getElementById('chart-series-modalidade');
+            const chartModulos = document.getElementById('chart-modulos');
+            const chartInversores = document.getElementById('chart-inversores');
+            const chartTipo = document.getElementById('chart-tipo');
+            const chartClasse = document.getElementById('chart-classe');
+            const chartPorte = document.getElementById('chart-porte');
+            const chartModalidade = document.getElementById('chart-modalidade');
+            let chartSeriesModalidadeInstance = null;
+            let chartModulosInstance = null;
+            let chartInversoresInstance = null;
+            let chartTipoInstance = null;
+            let chartClasseInstance = null;
+            let chartPorteInstance = null;
+            let chartModalidadeInstance = null;
             if (!container || !window.L) {{
                 if (attempt < 80) setTimeout(() => init(attempt + 1), 100);
                 return;
@@ -733,6 +933,212 @@ def render_demo_mapa() -> None:
                 }})[char]);
             }}
 
+            function computeChartData(installations) {{
+                const yearCounts = {{}};
+                const modCounts = {{}};
+                const invCounts = {{}};
+                const tipoCounts = {{}};
+                const classeCounts = {{}};
+                const porteCounts = {{}};
+                const modalidadeCounts = {{}};
+                const yearModCounts = {{}};
+                const modKeys = new Set();
+                installations.forEach((item) => {{
+                    const y = item.data_conexao_ano;
+                    const mod = item.modalidade_habilitado;
+                    if (y) yearCounts[y] = (yearCounts[y] || 0) + 1;
+                    if (item.fabricante_modulo) modCounts[item.fabricante_modulo] = (modCounts[item.fabricante_modulo] || 0) + 1;
+                    if (item.fabricante_inversor) invCounts[item.fabricante_inversor] = (invCounts[item.fabricante_inversor] || 0) + 1;
+                    if (item.tipo) tipoCounts[item.tipo] = (tipoCounts[item.tipo] || 0) + 1;
+                    if (item.classe) classeCounts[item.classe] = (classeCounts[item.classe] || 0) + 1;
+                    if (item.porte) porteCounts[item.porte] = (porteCounts[item.porte] || 0) + 1;
+                    if (mod) modalidadeCounts[mod] = (modalidadeCounts[mod] || 0) + 1;
+                    if (y && mod) {{
+                        const key = `${{y}}::${{mod}}`;
+                        yearModCounts[key] = (yearModCounts[key] || 0) + 1;
+                        modKeys.add(mod);
+                    }}
+                }});
+                const years = Object.keys(yearCounts).sort((a, b) => a - b);
+                const sortedMod = Object.entries(modCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
+                const sortedInv = Object.entries(invCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
+                const sortedTipo = Object.entries(tipoCounts).sort((a, b) => b[1] - a[1]);
+                const sortedClasse = Object.entries(classeCounts).sort((a, b) => b[1] - a[1]);
+                const sortedPorte = Object.entries(porteCounts).sort((a, b) => b[1] - a[1]);
+                const sortedModalidade = Object.entries(modalidadeCounts).sort((a, b) => b[1] - a[1]);
+
+                return {{
+                    topFabricantesModulo: {{
+                        labels: sortedMod.map((e) => e[0]),
+                        values: sortedMod.map((e) => e[1]),
+                    }},
+                    topFabricantesInversor: {{
+                        labels: sortedInv.map((e) => e[0]),
+                        values: sortedInv.map((e) => e[1]),
+                    }},
+                    porTipoPF_PJ: {{
+                        labels: sortedTipo.map((e) => e[0]),
+                        values: sortedTipo.map((e) => e[1]),
+                    }},
+                    porClasse: {{
+                        labels: sortedClasse.map((e) => e[0]),
+                        values: sortedClasse.map((e) => e[1]),
+                    }},
+                    porPorte: {{
+                        labels: sortedPorte.map((e) => e[0]),
+                        values: sortedPorte.map((e) => e[1]),
+                    }},
+                    porModalidade: {{
+                        labels: sortedModalidade.map((e) => e[0]),
+                        values: sortedModalidade.map((e) => e[1]),
+                    }},
+                    seriePorModalidade: {{
+                        labels: years.map(String),
+                        datasets: Array.from(modKeys).sort().map((mod) => ({{
+                            label: mod,
+                            data: years.map((y) => yearModCounts[`${{y}}::${{mod}}`] || 0),
+                        }})),
+                    }},
+                }};
+            }}
+
+            function renderOneChart(instance, canvas, config) {{
+                if (instance) {{ instance.destroy(); instance = null; }}
+                if (!canvas) return null;
+                try {{
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return null;
+                    const total = config.data.datasets[0]?.data.reduce((a, b) => a + b, 0) || 1;
+                    const colors = config.data.labels.map((_, i) => {{
+                        const ratio = total ? config.data.datasets[0].data[i] / total : 0;
+                if (ratio > 0.75) return '#DC2626';
+                if (ratio > 0.50) return '#F97316';
+                if (ratio > 0.25) return '#FACC15';
+                return '#22C55E';
+                    }});
+                    config.data.datasets[0].backgroundColor = colors;
+                    config.data.datasets[0].borderRadius = 4;
+                    return new Chart(ctx, config);
+                }} catch (e) {{ return null; }}
+            }}
+
+            function renderPieChart(instance, canvas, config) {{
+                if (instance) {{ instance.destroy(); instance = null; }}
+                if (!canvas) return null;
+                try {{
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return null;
+                    const total = config.data.datasets[0]?.data.reduce((a, b) => a + b, 0) || 0;
+                    config.options.plugins.tooltip = {{
+                        callbacks: {{
+                            label: (ctx) => {{
+                                const val = ctx.parsed || 0;
+                                const pct = total ? ((val / total) * 100).toFixed(1) : 0;
+                                return ` ${{ctx.label}}: ${{val.toLocaleString('pt-BR')}} (${{pct}}%)`;
+                            }},
+                        }},
+                    }};
+                    return new Chart(ctx, config);
+                }} catch (e) {{ return null; }}
+            }}
+
+            function makeBarConfig(labels, values, label, horizontal) {{
+                return {{
+                    type: 'bar',
+                    data: {{ labels, datasets: [{{ label, data: values }}] }},
+                    options: {{
+                        indexAxis: horizontal ? 'y' : undefined,
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{ legend: {{ display: false }} }},
+                        scales: {{
+                            x: {{ beginAtZero: true, grid: horizontal ? {{ color: '#e2e8f0' }} : {{ display: false }}, ticks: {{ font: {{ size: horizontal ? 11 : 11 }} }} }},
+                            y: horizontal ? {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }} : {{ beginAtZero: true, grid: {{ color: '#e2e8f0' }}, ticks: {{ font: {{ size: 11 }} }} }},
+                        }},
+                    }},
+                }};
+            }}
+
+            function makePieConfig(labels, values) {{
+                const palette = ['#F97316','#3B82F6','#22C55E','#FACC15','#DC2626','#8B5CF6','#06B6D4','#EC4899','#14B8A6','#EAB308','#64748B','#F472B6'];
+                const colors = labels.map((_, i) => palette[i % palette.length]);
+                const total = values.reduce((a, b) => a + b, 0) || 1;
+                const legendLabels = labels.map((label, i) => {{
+                    const pct = ((values[i] / total) * 100).toFixed(1);
+                    return `${{label}} (${{pct}}%)`;
+                }});
+                return {{
+                    type: 'pie',
+                    data: {{ labels: legendLabels, datasets: [{{ data: values, backgroundColor: colors, borderWidth: 0 }}] }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{ position: 'bottom', labels: {{ boxWidth: 14, padding: 10, font: {{ size: 12 }} }} }},
+                        }},
+                    }},
+                }};
+            }}
+
+            function renderStackedBar(instance, canvas, config) {{
+                if (instance) {{ instance.destroy(); instance = null; }}
+                if (!canvas) return null;
+                try {{
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return null;
+                    return new Chart(ctx, config);
+                }} catch (e) {{ return null; }}
+            }}
+
+            function renderCharts(municipioName) {{
+                let c;
+                if (municipioName) {{
+                    const rows = data.instalacoesPorMunicipio[municipioName] || [];
+                    const filtered = rows.filter(passFilters);
+                    c = computeChartData(filtered);
+                    if (chartTitle) chartTitle.textContent = 'Graficos - ' + municipioName;
+                }} else {{
+                    c = data.charts || {{}};
+                    if (chartTitle) chartTitle.textContent = 'Graficos - RMR';
+                }}
+                const sm = c.seriePorModalidade;
+                if (sm && sm.labels && sm.datasets) {{
+                    const palette = ['#F97316','#3B82F6','#22C55E','#FACC15','#DC2626','#8B5CF6','#06B6D4','#EC4899','#14B8A6','#EAB308'];
+                    sm.datasets.forEach((ds, i) => {{
+                        ds.backgroundColor = palette[i % palette.length];
+                        ds.borderWidth = 0;
+                    }});
+                    chartSeriesModalidadeInstance = renderStackedBar(chartSeriesModalidadeInstance, chartSeriesModalidade, {{
+                        type: 'bar',
+                        data: {{ labels: sm.labels, datasets: sm.datasets }},
+                        options: {{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {{ x: {{ stacked: true }}, y: {{ stacked: true, beginAtZero: true }} }},
+                            plugins: {{ legend: {{ position: 'bottom', labels: {{ boxWidth: 12, padding: 8, font: {{ size: 10 }} }} }} }},
+                        }},
+                    }});
+                }}
+                chartModulosInstance = renderOneChart(chartModulosInstance, chartModulos, makeBarConfig(
+                    c.topFabricantesModulo?.labels || [], c.topFabricantesModulo?.values || [], 'Instalacoes', true
+                ));
+                chartInversoresInstance = renderOneChart(chartInversoresInstance, chartInversores, makeBarConfig(
+                    c.topFabricantesInversor?.labels || [], c.topFabricantesInversor?.values || [], 'Instalacoes', true
+                ));
+                chartClasseInstance = renderPieChart(chartClasseInstance, chartClasse, makePieConfig(
+                    c.porClasse?.labels || [], c.porClasse?.values || []
+                ));
+                chartTipoInstance = renderPieChart(chartTipoInstance, chartTipo, makePieConfig(
+                    c.porTipoPF_PJ?.labels || [], c.porTipoPF_PJ?.values || []
+                ));
+                chartPorteInstance = renderPieChart(chartPorteInstance, chartPorte, makePieConfig(
+                    c.porPorte?.labels || [], c.porPorte?.values || []
+                ));
+                chartModalidadeInstance = renderPieChart(chartModalidadeInstance, chartModalidade, makePieConfig(
+                    c.porModalidade?.labels || [], c.porModalidade?.values || []
+                ));
+            }}
+
             function setupFilter(select, values) {{
                 select.innerHTML = '<option value="">Todos</option>' + values
                     .filter(Boolean)
@@ -746,6 +1152,9 @@ def render_demo_mapa() -> None:
             setupFilter(filterTipo, [...new Set(allRows.map((item) => item.tipo))]);
             setupFilter(filterPorte, [...new Set(allRows.map((item) => item.porte))]);
             setupFilter(filterBairro, []);
+            setupFilter(filterFabMod, [...new Set(allRows.map((item) => item.fabricante_modulo).filter(Boolean))]);
+            setupFilter(filterFabInv, [...new Set(allRows.map((item) => item.fabricante_inversor).filter(Boolean))]);
+            setupFilter(filterModalidade, [...new Set(allRows.map((item) => item.modalidade_habilitado).filter(Boolean))]);
 
             function updateBairroFilter() {{
                 const current = filterBairro.value;
@@ -759,7 +1168,10 @@ def render_demo_mapa() -> None:
                 return (!filterClasse.value || item.classe === filterClasse.value)
                     && (!filterTipo.value || item.tipo === filterTipo.value)
                     && (!filterPorte.value || item.porte === filterPorte.value)
-                    && (!filterBairro.value || (item.bairros_possiveis ?? [item.bairro]).includes(filterBairro.value));
+                    && (!filterBairro.value || (item.bairros_possiveis ?? [item.bairro]).includes(filterBairro.value))
+                    && (!filterFabMod.value || item.fabricante_modulo === filterFabMod.value)
+                    && (!filterFabInv.value || item.fabricante_inversor === filterFabInv.value)
+                    && (!filterModalidade.value || item.modalidade_habilitado === filterModalidade.value);
             }}
 
             function filteredRows(rows) {{
@@ -808,11 +1220,10 @@ def render_demo_mapa() -> None:
             function heatColor(value, maxValue) {{
                 if (!maxValue || value <= 0) return '#E0F2FE';
                 const ratio = Math.min(value / maxValue, 1);
-                if (ratio >= 0.78) return '#DC2626';
-                if (ratio >= 0.55) return '#F97316';
-                if (ratio >= 0.32) return '#FACC15';
-                if (ratio >= 0.14) return '#22C55E';
-                return '#38BDF8';
+                if (ratio > 0.75) return '#DC2626';
+                if (ratio > 0.50) return '#F97316';
+                if (ratio > 0.25) return '#FACC15';
+                return '#22C55E';
             }}
 
             function municipioMax() {{
@@ -833,11 +1244,10 @@ def render_demo_mapa() -> None:
             function updateLegend(maxValue, title = 'Instalacoes') {{
                 if (!legendBody) return;
                 const ranges = [
-                    {{ color: '#38BDF8', label: `Ate ${{Math.round(maxValue * 0.14).toLocaleString('pt-BR')}}` }},
-                    {{ color: '#22C55E', label: `${{Math.round(maxValue * 0.14).toLocaleString('pt-BR')}} a ${{Math.round(maxValue * 0.32).toLocaleString('pt-BR')}}` }},
-                    {{ color: '#FACC15', label: `${{Math.round(maxValue * 0.32).toLocaleString('pt-BR')}} a ${{Math.round(maxValue * 0.55).toLocaleString('pt-BR')}}` }},
-                    {{ color: '#F97316', label: `${{Math.round(maxValue * 0.55).toLocaleString('pt-BR')}} a ${{Math.round(maxValue * 0.78).toLocaleString('pt-BR')}}` }},
-                    {{ color: '#DC2626', label: `Acima de ${{Math.round(maxValue * 0.78).toLocaleString('pt-BR')}}` }},
+                    {{ color: '#22C55E', label: `Ate ${{Math.round(maxValue * 0.25).toLocaleString('pt-BR')}}` }},
+                    {{ color: '#FACC15', label: `${{Math.round(maxValue * 0.25).toLocaleString('pt-BR')}} a ${{Math.round(maxValue * 0.50).toLocaleString('pt-BR')}}` }},
+                    {{ color: '#F97316', label: `${{Math.round(maxValue * 0.50).toLocaleString('pt-BR')}} a ${{Math.round(maxValue * 0.75).toLocaleString('pt-BR')}}` }},
+                    {{ color: '#DC2626', label: `Acima de ${{Math.round(maxValue * 0.75).toLocaleString('pt-BR')}}` }},
                 ];
                 legendBody.innerHTML = `
                     <div class="rs-map-legend-title">${{title}}</div>
@@ -958,9 +1368,12 @@ def render_demo_mapa() -> None:
                         <td>${{escapeHtml(item.data_conexao)}}</td>
                         <td>${{Number(item.potencia_kw).toLocaleString('pt-BR', {{ maximumFractionDigits: 2 }})}}</td>
                         <td>${{Number(item.qtd_modulos).toLocaleString('pt-BR')}}</td>
+                        <td>${{escapeHtml(item.fabricante_modulo)}}</td>
+                        <td>${{escapeHtml(item.fabricante_inversor)}}</td>
+                        <td>${{Number(item.qtd_uc_credito).toLocaleString('pt-BR')}}</td>
                         <td>${{escapeHtml(item.cep)}}</td>
                     </tr>
-                `).join('') || '<tr><td colspan="13">Nenhuma instalacao encontrada.</td></tr>';
+                `).join('') || '<tr><td colspan="16">Nenhuma instalacao encontrada.</td></tr>';
             }}
 
             function renderInstallations(page = 1) {{
@@ -1027,48 +1440,49 @@ def render_demo_mapa() -> None:
                             updateSummary();
                             renderInstallations(1);
                             renderBairros(feature.properties.codigo, feature.properties.nome);
+                            renderCharts(feature.properties.nome);
                         }});
                     }},
                 }});
                 addLabels(layer, (properties) => properties.nome);
                 setLayer(layer);
                 updateSummary();
-                updateLegend(municipioMax(), 'Municipios');
+                updateLegend(municipioMax(), 'Instalacoes');
                 updateUnidentified(null);
             }}
 
-            resetButton?.addEventListener('click', () => {{
+            function resetToRmr() {{
                 viewMode = 'rmr';
                 selectedMunicipio = null;
                 filterBairro.value = '';
+                filterFabMod.value = '';
+                filterFabInv.value = '';
                 updateBairroFilter();
                 renderMunicipios();
+                renderCharts();
                 renderInstallations(1);
-            }});
+            }}
+            resetButton?.addEventListener('click', resetToRmr);
             backButton?.addEventListener('click', () => {{
-                if (viewMode === 'municipio') {{
-                    viewMode = 'rmr';
-                    selectedMunicipio = null;
-                    filterBairro.value = '';
-                    updateBairroFilter();
-                    renderMunicipios();
-                    renderInstallations(1);
-                }}
+                if (viewMode === 'municipio') resetToRmr();
             }});
             prevPageButton?.addEventListener('click', () => renderTablePage(currentPage - 1));
             nextPageButton?.addEventListener('click', () => renderTablePage(currentPage + 1));
-            [filterClasse, filterTipo, filterPorte, filterBairro].forEach((select) => select.addEventListener('change', () => {{
-                if (select !== filterBairro) updateBairroFilter();
+            [filterClasse, filterTipo, filterPorte, filterBairro, filterFabMod, filterFabInv, filterModalidade].forEach((select) => select.addEventListener('change', () => {{
+                if (select !== filterBairro && select !== filterFabMod && select !== filterFabInv && select !== filterModalidade) updateBairroFilter();
                 if (viewMode === 'municipio' && selectedMunicipio) renderBairros(selectedMunicipio.codigo, selectedMunicipio.nome);
                 else renderMunicipios();
                 updateSummary();
                 renderInstallations(1);
+                if (viewMode === 'municipio' && selectedMunicipio) renderCharts(selectedMunicipio.nome);
+                else renderCharts();
             }}));
             addLegend();
             addUnidentifiedBox();
             viewMode = 'rmr';
             updateBairroFilter();
             renderMunicipios();
+            renderCharts();
             updateSummary();
             renderInstallations(1);
             setTimeout(() => map.invalidateSize(), 100);
