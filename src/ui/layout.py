@@ -47,7 +47,8 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
     ''')
     ui.query('body').classes(add='rs-private-body')
 
-    with ui.left_drawer(top_corner=True, bottom_corner=True).classes(f'{drawer_classes} w-72 px-4 py-5'):
+    drawer = ui.left_drawer(top_corner=True, bottom_corner=True).classes(f'{drawer_classes} w-72 px-4 py-5')
+    with drawer:
         with ui.column().classes('w-full gap-6'):
             with ui.row().classes('items-center gap-3'):
                 ui.image('/assets/images/logo_radarsolar.png').classes('w-12')
@@ -75,9 +76,11 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
             )
 
     with ui.header().classes('bg-white/85 shadow-sm backdrop-blur-md px-6 py-3 items-center justify-between'):
-        with ui.column().classes('gap-0'):
-            ui.label(title).classes('text-xl font-bold text-slate-900')
-            ui.label(subtitle).classes('text-sm text-slate-500')
+        with ui.row().classes('items-center gap-3'):
+            ui.button(icon='menu', on_click=drawer.toggle).props('flat round color=primary').classes('shrink-0')
+            with ui.column().classes('gap-0'):
+                ui.label(title).classes('text-xl font-bold text-slate-900')
+                ui.label(subtitle).classes('text-sm text-slate-500')
 
 
 def redirect_path_for(auth: dict) -> str:
