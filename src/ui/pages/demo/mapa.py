@@ -879,7 +879,8 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             top: 8px;
             width: 8px;
         }
-        .rs-label-toggle {
+        .rs-label-toggle,
+        .rs-map-back-control {
             background: rgba(255, 255, 255, 0.94);
             border: 0;
             border-radius: 14px;
@@ -989,16 +990,11 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
         container_classes += ' min-h-screen'
 
     with ui.column().classes(container_classes):
-        with ui.row().classes('w-full items-end justify-between gap-4'):
-            if show_header:
+        if show_header:
+            with ui.row().classes('w-full items-end justify-between gap-4'):
                 with ui.column().classes('gap-1'):
                     ui.label('Demo mapa RMR').classes('text-3xl font-bold text-slate-900')
                     ui.label('Mapa de calor municipal com dados de geracao distribuida da ANEEL.').classes('text-base text-slate-600')
-            else:
-                ui.space()
-            with ui.row().classes('gap-2'):
-                ui.button('Voltar', on_click=None).props('outline color=primary').classes('rs-map-back')
-                ui.button('RMR', on_click=None).props('outline color=primary').classes('rs-map-reset')
 
         ui.html('''
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1176,8 +1172,6 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
 
         async function init(attempt = 0) {{
             const container = document.getElementById('demo-mapa-rmr');
-            const resetButton = document.querySelector('.rs-map-reset');
-            const backButton = document.querySelector('.rs-map-back');
             const selectedName = document.querySelector('.rs-selected-name');
             const totalInstallations = document.querySelector('.rs-total-installations');
             const totalPower = document.querySelector('.rs-total-power');
@@ -1264,6 +1258,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             let currentPage = 1;
             let legendBody = null;
             let unidentifiedBody = null;
+            let backControlButton = null;
             let labelsVisible = true;
             const pageSize = 100;
 
@@ -1737,6 +1732,29 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 control.addTo(map);
             }}
 
+            function updateBackControl() {{
+                if (!backControlButton) return;
+                backControlButton.style.display = viewMode === 'municipio' ? 'block' : 'none';
+            }}
+
+            function addBackControl() {{
+                const control = L.control({{ position: 'topright' }});
+                control.onAdd = () => {{
+                    const button = L.DomUtil.create('button', 'rs-map-back-control');
+                    button.type = 'button';
+                    button.textContent = 'Voltar';
+                    backControlButton = button;
+                    L.DomEvent.disableClickPropagation(button);
+                    L.DomEvent.on(button, 'click', (event) => {{
+                        L.DomEvent.preventDefault(event);
+                        if (viewMode === 'municipio') resetToRmr();
+                    }});
+                    updateBackControl();
+                    return button;
+                }};
+                control.addTo(map);
+            }}
+
             function addLabels(layer, labelAccessor) {{
                 layer.eachLayer((item) => {{
                     const label = labelAccessor(item.feature.properties);
@@ -1853,6 +1871,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 setLayer(layer);
                 updateLegend(maxBairro, `Bairros de ${{nomeMunicipio}}`);
                 updateUnidentified(codigoMunicipio);
+                updateBackControl();
             }}
 
             function renderMunicipios() {{
@@ -1880,6 +1899,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 updateSummary();
                 updateLegend(municipioMax(), 'Instalacoes');
                 updateUnidentified(null);
+                updateBackControl();
             }}
 
             function resetToRmr() {{
@@ -1893,10 +1913,6 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 renderCharts();
                 renderInstallations(1);
             }}
-            resetButton?.addEventListener('click', resetToRmr);
-            backButton?.addEventListener('click', () => {{
-                if (viewMode === 'municipio') resetToRmr();
-            }});
             prevPageButton?.addEventListener('click', () => renderTablePage(currentPage - 1));
             nextPageButton?.addEventListener('click', () => renderTablePage(currentPage + 1));
             [filterClasse, filterTipo, filterPorte, filterBairro, filterFabMod, filterFabInv, filterModalidade].forEach((select) => select.addEventListener('change', () => {{
@@ -1911,6 +1927,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             addLegend();
             addUnidentifiedBox();
             addLabelToggle();
+            addBackControl();
             addLeadLegend();
             renderLeadPins();
             viewMode = 'rmr';
