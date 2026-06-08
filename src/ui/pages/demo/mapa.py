@@ -196,10 +196,16 @@ def render_demo_mapa() -> None:
                 fillOpacity: 0.28,
             }};
             const selectedMunicipioStyle = {{
-                color: '#F97316',
-                weight: 2.6,
+                color: '#FFFFFF',
+                weight: 3.6,
                 fillColor: '#F97316',
-                fillOpacity: 0.18,
+                fillOpacity: 0.42,
+            }};
+            const selectedBairroStyle = {{
+                color: '#FFFFFF',
+                weight: 3,
+                fillColor: '#38BDF8',
+                fillOpacity: 0.42,
             }};
 
             function addLabels(layer, labelAccessor) {{
@@ -223,7 +229,10 @@ def render_demo_mapa() -> None:
                 const layer = L.geoJSON(data.municipios, {{
                     style: municipioStyle,
                     onEachFeature: (feature, item) => {{
-                        item.on('mouseover', () => item.setStyle(selectedMunicipioStyle));
+                        item.on('mouseover', () => {{
+                            item.setStyle(selectedMunicipioStyle);
+                            item.bringToFront();
+                        }});
                         item.on('mouseout', () => item.setStyle(municipioStyle));
                         item.on('click', () => renderBairros(feature.properties.codigo, feature.properties.nome));
                     }},
@@ -237,6 +246,11 @@ def render_demo_mapa() -> None:
                 const layer = L.geoJSON(bairros, {{
                     style: bairroStyle,
                     onEachFeature: (feature, item) => {{
+                        item.on('mouseover', () => {{
+                            item.setStyle(selectedBairroStyle);
+                            item.bringToFront();
+                        }});
+                        item.on('mouseout', () => item.setStyle(bairroStyle));
                         item.bindPopup(`<strong>${{feature.properties.nome}}</strong><br>${{nomeMunicipio}}`);
                     }},
                 }});
