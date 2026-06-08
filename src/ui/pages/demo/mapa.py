@@ -34,6 +34,7 @@ BAIRROS_SHP = ROOT_DIR / 'data/raw/ibge/PE_bairros_CD2022/PE_bairros_CD2022.shp'
 INSTALACOES_PARQUET = ROOT_DIR / 'data/processed/aneel/rmr_instalacoes.parquet'
 DNE_DIR = ROOT_DIR / 'data/raw/correios/eDNE_Basico_26031/Delimitado'
 CEP_PE_XLSX = ROOT_DIR / 'data/raw/CEP_PE.xlsx'
+EMPREENDIMENTOS_CSV = ROOT_DIR / 'data/processed/aneel/empreendimento-geracao-distribuida-rmr.csv'
 
 
 def _feature(geometry: dict, properties: dict) -> dict:
@@ -72,10 +73,32 @@ def _date_br(value: object) -> str:
     return parsed.strftime('%d/%m/%Y')
 
 
+@lru_cache(maxsize=1)
+def carregar_dados_titular() -> dict[str, dict]:
+    if not EMPREENDIMENTOS_CSV.exists():
+        return {}
+
+    colunas = ['CodEmpreendimento', 'NumCPFCNPJ', 'NomTitularEmpreendimento', 'DscModalidadeHabilitado']
+    df = pd.read_csv(EMPREENDIMENTOS_CSV, sep=';', encoding='latin1', usecols=colunas)
+    return {
+        _text(row.CodEmpreendimento): {
+            'cpf_cnpj': _text(row.NumCPFCNPJ),
+            'titular': _text(row.NomTitularEmpreendimento),
+            'modalidade_habilitado': _text(row.DscModalidadeHabilitado),
+        }
+        for row in df.itertuples(index=False)
+    }
+
+
 def _norm(value: str) -> str:
     value = unicodedata.normalize('NFKD', value)
     value = ''.join(char for char in value if not unicodedata.combining(char))
     return ' '.join(value.upper().split())
+
+
+def _bairro_key(value: str) -> str:
+    conectores = {'DA', 'DE', 'DI', 'DO', 'DAS', 'DOS'}
+    return ' '.join(part for part in _norm(value).split() if part not in conectores)
 
 
 def _read_dne_rows(path: Path):
@@ -166,6 +189,7 @@ def carregar_bairros_por_cep() -> tuple[dict[str, dict[str, set[str]]], dict[str
 
 @lru_cache(maxsize=1)
 def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    dados_titular = carregar_dados_titular()
     colunas = [
         'municipio',
         'cod_municipio_ibge',
@@ -193,9 +217,15 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
             'qtd_modulos': int(grupo['qtd_modulos'].sum()),
         }
         grupo_ordenado = grupo.sort_values(['potencia_kw', 'data_conexao'], ascending=[False, False])
-        instalacoes_por_municipio[municipio] = [
-            {
+        instalacoes = []
+        for row in grupo_ordenado.itertuples(index=False):
+            codigo = _text(row.cod_empreendimento)
+            dados_extra = dados_titular.get(codigo, {})
+            instalacoes.append({
                 'codigo': _text(row.cod_empreendimento),
+                'cpf_cnpj': dados_extra.get('cpf_cnpj', ''),
+                'titular': dados_extra.get('titular', ''),
+                'modalidade_habilitado': dados_extra.get('modalidade_habilitado') or _text(row.modalidade),
                 'municipio': _text(row.municipio),
                 'municipio_codigo': _text(row.cod_municipio_ibge),
                 'bairro': _text(row.bairro_estimado) or 'Nao identificado',
@@ -207,9 +237,8 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
                 'qtd_modulos': int(_number(row.qtd_modulos)),
                 'cep': _text(row.cep_original),
                 'cep_prefixo': _text(row.cep_prefixo),
-            }
-            for row in grupo_ordenado.itertuples(index=False)
-        ]
+            })
+        instalacoes_por_municipio[municipio] = instalacoes
 
     return agregados, instalacoes_por_municipio
 
@@ -290,7 +319,7 @@ def carregar_geojson_rmr() -> dict:
 
     bairros_validos_por_municipio = {
         codigo: {
-            _norm(feature['properties']['nome']): feature['properties']['nome']
+            _bairro_key(feature['properties']['nome']): feature['properties']['nome']
             for feature in features
             if feature['properties']['tipo'] == 'bairro'
         }
@@ -317,15 +346,15 @@ def carregar_geojson_rmr() -> dict:
                 candidatos_dne = prefixos_municipio.get(instalacao['cep_prefixo'], set())
             bairros_possiveis = sorted(
                 {
-                    bairros_validos[_norm(nome)]
+                    bairros_validos[_bairro_key(nome)]
                     for nome in candidatos_dne
-                    if _norm(nome) in bairros_validos
+                    if _bairro_key(nome) in bairros_validos
                 }
             )
 
-            bairro_estimado_norm = _norm(instalacao['bairro'])
-            if not bairros_possiveis and bairro_estimado_norm in bairros_validos:
-                bairros_possiveis = [bairros_validos[bairro_estimado_norm]]
+            bairro_estimado_key = _bairro_key(instalacao['bairro'])
+            if not bairros_possiveis and bairro_estimado_key in bairros_validos:
+                bairros_possiveis = [bairros_validos[bairro_estimado_key]]
 
             if not bairros_possiveis:
                 bairros_possiveis = [fallback_nome]
@@ -617,10 +646,14 @@ def render_demo_mapa() -> None:
                     <thead>
                         <tr>
                             <th>Codigo</th>
+                            <th>CPF/CNPJ</th>
+                            <th>Titular</th>
+                            <th>Municipio</th>
                             <th>Bairros possiveis</th>
                             <th>Classe</th>
                             <th>Tipo</th>
                             <th>Porte</th>
+                            <th>Modalidade</th>
                             <th>Data de Conexao</th>
                             <th>Potencia kW</th>
                             <th>Modulos</th>
@@ -628,7 +661,7 @@ def render_demo_mapa() -> None:
                         </tr>
                     </thead>
                     <tbody class="rs-installations-body">
-                        <tr><td colspan="9">Nenhum municipio selecionado.</td></tr>
+                        <tr><td colspan="13">Nenhum municipio selecionado.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -914,16 +947,20 @@ def render_demo_mapa() -> None:
                 installationsBody.innerHTML = visible.map((item) => `
                     <tr>
                         <td>${{escapeHtml(item.codigo)}}</td>
+                        <td>${{escapeHtml(item.cpf_cnpj)}}</td>
+                        <td>${{escapeHtml(item.titular)}}</td>
+                        <td>${{escapeHtml(item.municipio)}}</td>
                         <td>${{escapeHtml((item.bairros_possiveis ?? [item.bairro]).join(', '))}}</td>
                         <td>${{escapeHtml(item.classe)}}</td>
                         <td>${{escapeHtml(item.tipo)}}</td>
                         <td>${{escapeHtml(item.porte)}}</td>
+                        <td>${{escapeHtml(item.modalidade_habilitado)}}</td>
                         <td>${{escapeHtml(item.data_conexao)}}</td>
                         <td>${{Number(item.potencia_kw).toLocaleString('pt-BR', {{ maximumFractionDigits: 2 }})}}</td>
                         <td>${{Number(item.qtd_modulos).toLocaleString('pt-BR')}}</td>
                         <td>${{escapeHtml(item.cep)}}</td>
                     </tr>
-                `).join('') || '<tr><td colspan="9">Nenhuma instalacao encontrada.</td></tr>';
+                `).join('') || '<tr><td colspan="13">Nenhuma instalacao encontrada.</td></tr>';
             }}
 
             function renderInstallations(page = 1) {{
