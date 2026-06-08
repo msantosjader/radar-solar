@@ -7,4 +7,5 @@ dependencies = [
     "pandas>=3.0.3",
     "peewee>=4.0.6",
     "pyarrow>=24.0.0",
+    "pyshp>=3.0.12",
 ]
