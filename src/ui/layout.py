@@ -32,6 +32,11 @@ def require_auth(request: Request, expected_profile: str | None = None) -> dict 
 def render_private_shell(auth: dict, current_path: str, title: str, subtitle: str) -> None:
     profile = auth['profile']
     items = NAV_ITEMS[profile]
+    drawer_classes = {
+        'customer': 'bg-orange-600 text-white',
+        'company': 'bg-slate-900 text-white',
+    }[profile]
+    drawer_caption = 'Area autenticada' if profile == 'customer' else 'Integrador solar'
 
     ui.add_head_html('''
     <style>
@@ -42,17 +47,17 @@ def render_private_shell(auth: dict, current_path: str, title: str, subtitle: st
     ''')
     ui.query('body').classes(add='rs-private-body')
 
-    with ui.left_drawer(top_corner=True, bottom_corner=True).classes('bg-slate-900 text-white w-72 px-4 py-5'):
+    with ui.left_drawer(top_corner=True, bottom_corner=True).classes(f'{drawer_classes} w-72 px-4 py-5'):
         with ui.column().classes('w-full gap-6'):
             with ui.row().classes('items-center gap-3'):
                 ui.image('/assets/images/logo_radarsolar.png').classes('w-12')
                 with ui.column().classes('gap-0'):
                     ui.label('Radar Solar').classes('text-base font-bold')
-                    ui.label('Area autenticada').classes('text-xs text-slate-400')
+                    ui.label(drawer_caption).classes('text-xs text-white/70')
 
             with ui.column().classes('gap-2'):
                 ui.label(auth['nome']).classes('text-lg font-semibold rs-current-user-name')
-                ui.label(auth['email']).classes('text-sm text-slate-400')
+                ui.label(auth['email']).classes('text-sm text-white/70')
 
             with ui.column().classes('w-full gap-2'):
                 for path, icon, label in items:
