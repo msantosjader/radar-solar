@@ -700,8 +700,6 @@ def carregar_leads_mapa(data: dict) -> list[dict]:
 
 
 def carregar_pjs_mapa(data: dict) -> list[dict]:
-    bairros_por_cep_exato, bairros_por_prefixo = carregar_bairros_por_cep()
-
     instalacoes = []
     for lista in data['instalacoesPorMunicipio'].values():
         instalacoes.extend(lista)
@@ -717,6 +715,8 @@ def carregar_pjs_mapa(data: dict) -> list[dict]:
         if len(cnpj) != 14:
             continue
         cache = cnpj_cache.get(cnpj)
+        if not cache or cache.latitude is None or cache.longitude is None:
+            continue
         logradouro_rel = ''
         numero_rel = ''
         bairro_rel = ''
@@ -733,21 +733,8 @@ def carregar_pjs_mapa(data: dict) -> list[dict]:
             if bairro_rel and bairro_rel != 'Nao identificado':
                 endereco_rel = f'{inst["municipio"]}, {bairro_rel}'
 
-        lat = lng = None
-        if cache and cache.latitude and cache.longitude:
-            lat = cache.latitude
-            lng = cache.longitude
-        else:
-            municipio_codigo = inst.get('municipio_codigo', '')
-            cep_digits = ''.join(ch for ch in cep if ch.isdigit())
-            prefixo = inst.get('cep_prefixo', '')
-            lat, lng = _estimar_coordenada_por_cep(
-                municipio_codigo, cep_digits, prefixo,
-                bairros_por_cep_exato, bairros_por_prefixo, data,
-            )
-
-        if not lat or not lng:
-            continue
+        lat = cache.latitude
+        lng = cache.longitude
 
         pins.append({
             'codigo': inst['codigo'],
@@ -837,7 +824,7 @@ def api_demo_mapa_rmr() -> Response:
     return Response(
         montar_mapa_json(pjs=carregar_pjs_mapa(data)),
         media_type='application/json',
-        headers={'Cache-Control': 'public, max-age=300'},
+        headers={'Cache-Control': 'no-store'},
     )
 
 
@@ -1861,10 +1848,11 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                         iconAnchor: [15, 39],
                         popupAnchor: [0, -38],
                     }});
-                    const marker = L.marker([lat, lng], {{ icon, pane: 'leadPane', zIndexOffset: 9000 }});
-                    marker.on('click', () => {{
-                        marker.setZIndexOffset(20000);
-                        marker.openPopup();
+                    const marker = L.marker([lat, lng], {{
+                        icon,
+                        pane: 'leadPane',
+                        zIndexOffset: 9000,
+                        bubblingMouseEvents: false,
                     }});
                     const logradouro = pj.logradouro
                         ? `${{escapeHtml(pj.logradouro)}}${{pj.numero ? ', ' + escapeHtml(pj.numero) : ''}}`
@@ -1879,16 +1867,25 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                     marker.bindPopup(`
                         <div style="font-size:13px;line-height:1.6">
                         <strong>${{escapeHtml(pj.codigo)}}</strong><br>
+                        CNPJ: ${{formatCnpj(pj.cnpj)}}<br>
                         ${{escapeHtml(pj.titular)}}<br>
-                        ${{formatCnpj(pj.cnpj)}}<br>
                         ${{logradouro}}, ${{cidadeUf}}<br>
-                        ${{pj.cep ? formatCep(pj.cep) : '-'}}<br>
-                        ${{pj.data_instalacao ? escapeHtml(pj.data_instalacao) : '-'}}<br>
-                        ${{modulosPotencia}}<br>
-                        ${{telefone}}<br>
-                        ${{pj.email ? escapeHtml(pj.email) : '-'}}
+                        CEP: ${{pj.cep ? formatCep(pj.cep) : '-'}}<br>
+                        <div style="border-top:1px solid #e2e8f0;margin:7px 0"></div>
+                        <strong>Instalação de ${{pj.data_instalacao ? escapeHtml(pj.data_instalacao) : '-'}}</strong><br>
+                        Dados<br>
+                        ${{modulosPotencia}}
+                        <div style="border-top:1px solid #e2e8f0;margin:7px 0"></div>
+                        <strong>Contato</strong><br>
+                        Tel.: ${{telefone}}<br>
+                        E-mail: ${{pj.email ? escapeHtml(pj.email) : '-'}}
                         </div>
-                    `);
+                    `, {{ autoPan: false }});
+                    marker.on('click', (event) => {{
+                        L.DomEvent.stop(event.originalEvent);
+                        marker.setZIndexOffset(20000);
+                        marker.openPopup();
+                    }});
                     marker.addTo(pjLayer);
                 }});
             }}
