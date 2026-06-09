@@ -30,16 +30,15 @@ comercial. O pipeline de dados ilustra isso claramente.
 **No projeto:** Decomposição do problema "mapa comercial de energia solar"
 em módulos: login, dashboard B2C, dashboard B2B, mapa, kanban, cache CNPJ.
 
-**Exemplo:** `src/ui/pages/demo/mapa.py:702-775` — `carregar_pjs_mapa()`
-```
+**Exemplo:** `src/ui/pages/demo/mapa.py:702-760` — `carregar_pjs_mapa()`
 
+```
 def carregar_pjs_mapa(data: dict) -> list[dict]:
-    # 1. Filtrar instalações PJ com CNPJ
-    # 2. Consultar cache CNPJá
-    # 3. Montar endereço completo
-    # 4. Pegar coordenada geocodificada
-    # 5. Montar pin com todos os dados
-    return pins
+    # 1. Agregar instalações de todos os municípios
+    # 2. Filtrar apenas PJ com CNPJ
+    # 3. Consultar cache CNPJá
+    # 4. Montar endereço completo (com fallback)
+    # 5. Montar pin com dados + coordenadas
 ```
 
 Cada etapa resolve um subproblema específico.
@@ -54,12 +53,12 @@ Cada etapa resolve um subproblema específico.
 executável. As funções são nomeadas de forma descritiva, servindo como
 documentação do algoritmo.
 
-**Exemplo:** `src/ui/pages/cliente/faturas.py:105-200`
+**Exemplo:** `src/ui/pages/cliente/faturas.py:143-350`
 O fluxo de criação de fatura segue uma sequência lógica clara:
 1. Validar dados de entrada
-2. Verificar duplicidade de competência
+2. Verificar duplicidade de competência (`_usuario_ja_tem_fatura_na_competencia`, linha 95)
 3. Salvar no banco
-4. Atualizar dashboard
+4. Atualizar listagem
 5. Exibir feedback ao usuário
 
 ---
@@ -71,19 +70,20 @@ O fluxo de criação de fatura segue uma sequência lógica clara:
 **No projeto:** Uso intensivo de funções built-in do Python.
 
 **Exemplos:**
-- `src/normalize.py:12-18`
+- `src/normalize.py:9-11` — normalização de string
 ```python
-def _text(value: object) -> str:
-    return str(value).strip() if pd.notna(value) else ''
+def _strip_accents(value: str) -> str:
+    nfkd = unicodedata.normalize('NFKD', value)
+    return ''.join(char for char in nfkd if not unicodedata.combining(char))
 ```
 
-- `scripts/update_cnpj_enderecos.py:25-26`
+- `scripts/update_cnpj_enderecos.py:30-31`
 ```python
 def only_digits(value: object) -> str:
     return ''.join(ch for ch in str(value) if ch.isdigit())
 ```
 
-- `src/ui/pages/demo/mapa.py:760-761`
+- `src/ui/pages/demo/mapa.py:122-124`
 ```python
 def _number(value: object) -> float:
     try:
@@ -102,31 +102,30 @@ relacionais e lógicos.
 **No projeto:**
 
 **Operadores aritméticos:**
-- `src/models.py:53`
+- `src/ui/pages/cliente/dashboard.py:111`
 ```python
-economia = (cls.consumo * 0.85) - cls.injecao
+queda_percentual = ((anterior - atual) / anterior) * 100
 ```
 
-- `src/ui/pages/cliente/dashboard.py:180`
+- `src/ui/pages/cliente/perfil.py:50`
 ```python
-geracao_estimada = consumo * 0.85
+if dados['cep'] and len(_normalizar_cep(dados['cep'])) == 8:
 ```
 
 **Operadores relacionais e lógicos (if/else):**
-- `src/models.py:74-81` — alerta de anomalia
+- `src/ui/pages/cliente/dashboard.py:112-118` — alerta de queda de geração
 ```python
-if geracao_estimada < consumo * 0.8:
-    return 'Alerta Vermelho'
-elif geracao_estimada < consumo * 0.9:
-    return 'Alerta Amarelo'
+if queda_percentual >= LIMIAR_QUEDA_GERACAO_PERCENT:  # 20%
+    alertas.append(f'Queda de geracao acima do limite...')
 else:
-    return 'Normal'
+    status.append('Geracao dentro da faixa esperada...')
 ```
 
 **Concatenação de strings:**
-- `src/ui/pages/demo/mapa.py:1867-1868`
+- `src/ui/pages/demo/mapa.py:729`
 ```python
-cidadeUf = f'{pj.municipio.upper()}/{pj.uf}' if pj.uf else pj.municipio.upper()
+endereco_rel = ', '.join(p for p in [logradouro_rel, numero_rel,
+                         bairro_rel, cache.cidade or '', cache.estado or ''] if p)
 ```
 
 ---
@@ -139,22 +138,22 @@ cidadeUf = f'{pj.municipio.upper()}/{pj.uf}' if pj.uf else pj.municipio.upper()
 
 **Exemplos:**
 
-- `src/ui/pages/empresa/kanban.py:148-155` — filtro de leads por perfil
+- `src/ui/pages/empresa/kanban.py:33-37` — filtro de leads (abertos + da empresa)
 ```python
-if usuario.tipo == 'Integrador':
-    leads_abertos = Lead.select().where(Lead.empresa_responsavel.is_null())
-    leads_meus = Lead.select().where(Lead.empresa_responsavel == empresa)
-    leads = list(chain(leads_abertos, leads_meus))
-elif usuario.tipo == 'Empresa':
-    leads = Lead.select().where(Lead.empresa_responsavel == empresa)
+Lead.select().where(
+    (Lead.status.in_(STATUS_KANBAN))
+    & ((Lead.empresa_responsavel.is_null(True)) | (Lead.empresa_responsavel == empresa_id))
+)
 ```
 
-- `src/ui/pages/public/__init__.py:255-270` — bloqueio de perfil conflitante
+- `src/auth.py:56-63` — bloqueio de perfil conflitante
 ```python
-if usuario and usuario.tipo != tipo_escolhido:
+if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
+    perfil_existente = TIPO_TO_LABEL.get(usuario_existente.tipo_perfil, ...)
+    perfil_solicitado = TIPO_TO_LABEL.get(tipo_perfil, ...)
     raise PerfilConflitanteError(
-        f'Este e-mail já está cadastrado como {usuario.tipo}. '
-        f'Use o perfil correto para acessar.'
+        f'Este e-mail ja esta cadastrado como {perfil_existente}. '
+        f'Para acessar como {perfil_solicitado}, use outro e-mail.'
     )
 ```
 
@@ -172,7 +171,7 @@ if bairro_rel and bairro_rel != 'Nao identificado':
 
 **No projeto:**
 
-- `scripts/update_cnpj_enderecos.py:62-67` — retry em rate limit
+- `scripts/update_cnpj_enderecos.py:72-75` — retry em rate limit
 ```python
 if exc.code == 429:
     print('  Rate limited. Aguardando 60s...')
@@ -195,19 +194,21 @@ por ser mais idiomático.
 
 **Exemplos:**
 
-- `scripts/update_cnpj_enderecos.py:138-139` — iterar CNPJs pendentes
+- `scripts/update_cnpj_enderecos.py:139-147` — iterar CNPJs do DataFrame
 ```python
-for i, cnpj in enumerate(cnpjs_pendentes, start=1):
-    print(f'[{i}/{len(cnpjs_pendentes)}] Consultando {cnpj}...')
+for _, row in df.iterrows():
+    cnpj = only_digits(row['NumCPFCNPJ'])
+    if len(cnpj) == 14:
+        mapa[str(row['CodEmpreendimento']).strip()] = cnpj
 ```
 
-- `src/ui/pages/demo/mapa.py:706-707` — agregar instalações por município
+- `src/ui/pages/demo/mapa.py:704-705` — agregar instalações por município
 ```python
 for lista in data['instalacoesPorMunicipio'].values():
     instalacoes.extend(lista)
 ```
 
-- `src/ui/pages/demo/mapa.py:715-717` — iterar PJs e montar pins
+- `src/ui/pages/demo/mapa.py:713-716` — iterar PJs e montar pins
 ```python
 for inst in pjs:
     cnpj = ''.join(ch for ch in inst['cpf_cnpj'] if ch.isdigit())
@@ -215,7 +216,7 @@ for inst in pjs:
         continue
 ```
 
-- `scripts/update_cnpj_enderecos.py:42-48` — ler CSV linha a linha
+- `scripts/update_cnpj_enderecos.py:51-57` — ler CSV linha a linha
 ```python
 for linha in linhas[1:]:
     partes = linha.split(';')
@@ -234,12 +235,12 @@ for linha in linhas[1:]:
 
 **No projeto:**
 
-- `src/ui/pages/demo/mapa.py:710` — lista de pins
+- `src/ui/pages/demo/mapa.py:708` — lista de pins
 ```python
 pins: list[dict] = []
 ```
 
-- `src/ui/pages/demo/mapa.py:752-774` — append e manipulação de listas
+- `src/ui/pages/demo/mapa.py:739-758` — append e manipulação de listas
 ```python
 pins.append({
     'codigo': inst['codigo'],
@@ -249,19 +250,15 @@ pins.append({
 })
 ```
 
-- `scripts/update_cnpj_enderecos.py:45-47` — compreensão de listas
+- `scripts/update_cnpj_enderecos.py:59` — list comprehension com set
 ```python
-cnpjs_pendentes = [c for c in carregar_cnpjs_do_csv() if c not in ja_cacheados]
+return sorted(cnpjs_unicos)  # set convertido em lista ordenada
 ```
 
-- `src/normalize.py:39-42` — list comprehension com filtro
+- `src/normalize.py:27-29` — list comprehension com filtro
 ```python
-def normalizar_modulo(nome: str) -> str:
-    nome_upper = nome.upper().strip()
-    for padrao, normalizado in MAPA_MODULOS:
-        if any(p in nome_upper for p in padrao):
-            return normalizado
-    return nome_upper.title()
+conectores = {'DE', 'DO', 'DA', 'DAS', 'DOS', 'E'}
+return ' '.join(part for part in value.split() if part not in conectores)
 ```
 
 ---
@@ -273,43 +270,42 @@ def normalizar_modulo(nome: str) -> str:
 **No projeto:**
 
 **Dicionários** — estrutura mais usada depois de listas:
-- `src/ui/pages/demo/mapa.py:50-144` — dicionário de municípios da RMR
+- `src/ui/pages/demo/mapa.py:23-38` — conjunto de municípios da RMR (set)
 ```python
 RMR_MUNICIPIOS = {
-    '2600054': 'Abreu e Lima',
-    '2600609': 'Araçoiaba',
-    '2602902': 'Cabo de Santo Agostinho',
+    '2600054',  # Abreu e Lima
+    '2601052',  # Aracoiaba
+    '2602902',  # Cabo de Santo Agostinho
     ...
 }
 ```
 
-- `src/ui/pages/demo/mapa.py:711-712` — dict comprehension
+- `src/ui/pages/demo/mapa.py:709-711` — dict comprehension
 ```python
 cnpj_cache: dict[str, CnpjCache] = {
     c.cnpj: c for c in CnpjCache.select()
 }
 ```
 
-- `src/models.py:102-114` — dicionário de campos do modelo via Peewee
+- `src/models.py:102-118` — campos do modelo `CnpjCache` via Peewee
 
 **Tuplas** — usadas para coordenadas, retorno de funções, pares chave-valor:
 - `src/ui/pages/demo/mapa.py:736-737`
 ```python
-lat, lng = _estimar_coordenada_por_cep(...)
+lat, lng = cache.latitude, cache.longitude
 ```
 
-- `src/ui/pages/demo/mapa.py:776-779`
+- `src/ui/pages/demo/mapa.py:763-766`
 ```python
-def _estimar_coordenada_por_cep(...) -> tuple[float | None, float | None]:
+def _estimar_coordenada_por_cep(
+    municipio_codigo: str, cep_digits: str, prefixo: str,
+    ...
+) -> tuple[float | None, float | None]:
 ```
 
-- `src/normalize.py:15-32` — tuplas de mapeamento
+- `src/normalize.py:27-29` — tuplas de conectores (set)
 ```python
-MAPA_MODULOS: list[tuple[list[str], str]] = [
-    (['JINKO', 'JINKOSOLAR'], 'Jinko'),
-    (['CANADIAN', 'CSI'], 'Canadian Solar'),
-    (['LONGI'], 'Longi'),
-]
+conectores = {'DE', 'DO', 'DA', 'DAS', 'DOS', 'E'}
 ```
 
 ---
@@ -324,27 +320,27 @@ MAPA_MODULOS: list[tuple[list[str], str]] = [
 
 - `src/normalize.py` — módulo dedicado a normalização
 ```python
-def normalizar_modulo(nome: str) -> str: ...
-def normalizar_inversor(nome: str) -> str: ...
+def normalizar_modulo(value: str | None) -> str: ...  # linha 687
+def normalizar_inversor(value: str | None) -> str: ...  # linha 690
 ```
 
 - `src/ui/pages/demo/mapa.py` — funções auxiliares no mapa
 ```python
-def _text(value: object) -> str: ...
-def _number(value: object) -> float: ...
-def _date_br(value) -> str: ...
-def _bairro_key(nome: str) -> str: ...
-def _shape_centroid(geometry: dict) -> tuple[float, float] | None: ...
+def _text(value: object) -> str: ...                # linha 128
+def _number(value: object) -> float: ...             # linha 122
+def _date_br(value) -> str: ...                     # linha 134
+def _bairro_key(value: str) -> str: ...             # linha 166
+def _shape_centroid(geometry: dict) -> ...           # linha 88
 ```
 
 - `scripts/update_cnpj_enderecos.py` — pipeline modularizado
 ```python
-def carregar_cnpjs_do_csv() -> list[str]: ...
-def consultar_cnpja(cnpj: str) -> dict | None: ...
-def extrair_dados_cnpj(dados: dict) -> dict: ...
-def geocodificar(endereco: str) -> tuple[float | None, float | None]: ...
-def atualizar_parquet() -> None: ...
-def main() -> int: ...
+def carregar_cnpjs_do_csv() -> list[str]: ...         # linha 34
+def consultar_cnpja(cnpj: str) -> dict | None: ...    # linha 62
+def extrair_dados_cnpj(dados: dict) -> dict: ...      # linha 83
+def geocodificar(endereco: str) -> tuple[...]: ...     # linha 125
+def atualizar_parquet() -> None: ...                   # linha 151
+def main() -> int: ...                                 # linha 224
 ```
 
 ---
@@ -355,25 +351,31 @@ def main() -> int: ...
 
 **No projeto:**
 
-**Organização:** Separação clara em módulos `src/models.py` (dados),
-`src/ui/` (interface), `scripts/` (utilitários), `src/normalize.py` (lógica).
+**Organização:** Separação clara em módulos: `src/models.py` (dados),
+`src/ui/` (interface), `scripts/` (utilitários), `src/normalize.py` (lógica),
+`src/auth.py` (autenticação), `src/utils.py` (compartilhados).
 
 **Reuso:**
-- `src/normalize.py` é importado por `src/ui/pages/demo/mapa.py`
+- `src/normalize.py` é importado por `src/ui/pages/demo/mapa.py:21`
 ```python
 from src.normalize import normalizar_inversor, normalizar_modulo
 ```
 
+- `src/utils.py` é compartilhado entre cliente e empresa:
+```python
+from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado
+```
+
 **Refatoração:**
-- `src/ui/pages/demo/mapa.py:300-323` — função que monta instalações é
+- `src/ui/pages/demo/mapa.py:295-323` — função que monta instalações é
   reusada tanto pelo mapa quanto pela tabela e gráficos
-- `scripts/update_cnpj_enderecos.py:137-183` — `atualizar_parquet()` é
+- `scripts/update_cnpj_enderecos.py:151-180` — `atualizar_parquet()` é
   reusada no final do script e também chamada quando não há pendentes
 
 **Legibilidade:**
-- Nomes descritivos: `carregar_pjs_mapa`, `geocodificar`, `formatCnpj`
+- Nomes descritivos: `carregar_pjs_mapa`, `geocodificar`, `_normalizar_telefone_whatsapp`
 - Type hints em todas as funções
-- Comentários em blocos de lógica complexa
+- Constantes nomeadas: `LIMIAR_QUEDA_GERACAO_PERCENT = 20.0`, `STATUS_KANBAN = ['Novo', 'Em Contato', 'Concluído']`
 
 ---
 
@@ -383,15 +385,16 @@ from src.normalize import normalizar_inversor, normalizar_modulo
 
 **No projeto:** O mapa `/demo/mapa` é o melhor exemplo de integração:
 
-1. **Dicionários** para configurar municípios (`RMR_MUNICIPIOS`)
-2. **Listas** para coleções de instalações e pins
-3. **For** para iterar e montar dados
-4. **If/else** para filtros e formatação condicional
-5. **Funções** para modularizar o código
-6. **Tuplas** para retorno de coordenadas
-7. **Arquivos** (parquet/CSV) para persistência
-8. **API externa** para geocoding
-9. **JSON** para serialização e envio ao frontend
+1. **Sets** para configurar municípios (`RMR_MUNICIPIOS`)
+2. **Dicionários** para consultas de cache (CNPJ cache dict comprehension)
+3. **Listas** para coleções de instalações e pins
+4. **For** para iterar e montar dados
+5. **If/else** para filtros e formatação condicional
+6. **Funções** para modularizar o código
+7. **Tuplas** para retorno de coordenadas
+8. **Arquivos** (parquet/CSV/shapefile) para persistência
+9. **API externa** para geocoding (Nominatim) e consulta CNPJ (CNPJá)
+10. **JSON** para serialização e envio ao frontend
 
 **Exemplo no pipeline de dados (`scripts/update_aneel_data.py`):**
 1. Download de ZIP com `urllib`
@@ -411,21 +414,22 @@ from src.normalize import normalizar_inversor, normalizar_modulo
 **No projeto:** O projeto completo é a aplicação prática. Dois algoritmos
 de destaque:
 
-**Algoritmo de geocoding com fallback** (`src/ui/pages/demo/mapa.py:759-803`):
+**Algoritmo de geocoding com fallback** (`src/ui/pages/demo/mapa.py:763-799`):
 ```
 1. Tentar CEP exato → buscar bairro no shapefile
-2. Se não achar, tentar prefixo do CEP → buscar bairro
+2. Se não achar, tentar prefixo do CEP (5 dígitos) → buscar bairro
 3. Se não achar, usar centróide do bairro fallback
 4. Se não achar, usar centróide do município
 5. Retornar (lat, lng) ou (None, None)
 ```
 
-**Algoritmo de recomendação de energia solar** (`src/normalize.py`):
+**Algoritmo de normalização de fabricantes** (`src/normalize.py:32-686`):
 ```
-1. Identificar fabricante do equipamento
-2. Normalizar variações ortográficas
-3. Cruzar com dados de desempenho histórico
-4. Estimar geração esperada
+1. Dicionário de ~200 sinônimos de módulo + ~170 de inversor
+2. Normalizar string (upper case, remover acentos)
+3. Busca por prefixo no sinônimo
+4. Fallback: similaridade fuzzy (difflib)
+5. Retornar nome normalizado ou título original
 ```
 
 ---
@@ -436,39 +440,40 @@ de destaque:
 
 **No projeto:** A validação é feita de forma prática:
 
-- **Teste de validação de dados** em `src/ui/pages/cliente/faturas.py`:
+- **Validação de dados** em `src/ui/pages/cliente/faturas.py:185-190`:
 ```python
-if not consumo or not valor:
-    ui.notify('Preencha consumo e valor da fatura', type='warning')
+if not mes_referencia.value or not consumo_kwh.value or not valor_fatura_rs.value:
+    ui.notify('Preencha mes de referencia, consumo e valor da fatura', type='warning')
     return
 ```
 
-- **Validação de CPF/CNPJ** em `src/ui/pages/demo/mapa.py:717-718`:
+- **Validação de CPF/CNPJ** em `src/ui/pages/demo/mapa.py:714-715`:
 ```python
 cnpj = ''.join(ch for ch in inst['cpf_cnpj'] if ch.isdigit())
 if len(cnpj) != 14:
     continue
 ```
 
-- **Validação de coordenadas** em `src/ui/pages/demo/mapa.py:749-750`:
+- **Validação de coordenadas** em `src/ui/pages/demo/mapa.py:718-719`:
 ```python
-if not lat or not lng:
+if not cache or cache.latitude is None or cache.longitude is None:
     continue
 ```
 
-- **Tratamento de erros de API** em `scripts/update_cnpj_enderecos.py:53-71`:
+- **Tratamento de erros de API** em `scripts/update_cnpj_enderecos.py:68-80`:
 ```python
-try:
-    with urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode('utf-8'))
 except HTTPError as exc:
-    if exc.code == 404: ...
-    if exc.code == 429: ...
-except (URLError, TimeoutError, json.JSONDecodeError) as exc: ...
+    if exc.code == 404:
+        return {'taxId': cnpj, 'company': {}}
+    if exc.code == 429:
+        time.sleep(60)
+        return consultar_cnpja(cnpj)
+except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+    return None
 ```
 
 **Observação:** Testes unitários formais com `pytest` ainda não foram
-implementados (RNF07 pendente).
+implementados (pendente para próximas sprints).
 
 ---
 
@@ -477,20 +482,20 @@ implementados (RNF07 pendente).
 | Aula | Data | Conteúdo | Onde usamos no projeto |
 |------|------|----------|----------------------|
 | 1 | 11/2 | Apresentação, algoritmos | Todo o sistema |
-| 2 | 25/2 | Lógica, decomposição | `carregar_pjs_mapa()` — quebra em 5 passos |
+| 2 | 25/2 | Lógica, decomposição | `carregar_pjs_mapa()` — quebra em 5 passos (`mapa.py:702`) |
 | 3 | 4/3 | Pseudocódigo, fluxogramas | Nomes descritivos de funções (`_estimar_coordenada_por_cep`) |
-| 4 | 11/3 | Python, I/O | `only_digits()`, `_text()`, `_number()` |
-| 5 | 18/3 | Variáveis, tipos, operadores | `models.py:53` (economia = consumo*0.85 - injecao) |
-| 6 | 25/3 | if/elif/else | Filtro de perfil, validações, bloqueio de conflito |
-| 7 | 1/4 | while | Retry de rate limit (recursão simulando while) |
-| 8 | 8/4 | for | `for inst in pjs`, `for linha in linhas` |
+| 4 | 11/3 | Python, I/O | `only_digits()` (`cnpj_enderecos.py:30`), `_number()` (`mapa.py:122`) |
+| 5 | 18/3 | Variáveis, tipos, operadores | `dashboard.py:111` (queda_percentual = ((anterior - atual) / anterior) * 100) |
+| 6 | 25/3 | if/elif/else | Filtro de leads, PerfilConflitanteError (`auth.py:56`) |
+| 7 | 1/4 | while | Retry de rate limit (recursão, `cnpj_enderecos.py:72`) |
+| 8 | 8/4 | for | `for inst in pjs` (`mapa.py:713`), `for linha in linhas` (`cnpj_enderecos.py:51`) |
 | 9 | 15/4 | **AV1** | — |
-| 10 | 22/4 | Listas | `pins.append({...})`, list comprehensions |
-| 11 | 29/4 | Tuplas, dicionários | `tuple[float, float]`, `RMR_MUNICIPIOS`, dict comprehensions |
+| 10 | 22/4 | Listas | `pins.append({...})` (`mapa.py:739`), list comprehensions |
+| 11 | 29/4 | Tuplas, dicionários | `tuple[float, float]` (`mapa.py:763`), `RMR_MUNICIPIOS` (`mapa.py:23`), dict comprehensions |
 | 12 | 6/5 | Funções, modularização | `normalizar_modulo()`, `geocodificar()`, `extrair_dados_cnpj()` |
-| 13 | 13/5 | Boas práticas, refatoração | Separação em módulos, type hints, reuso via `src/normalize.py` |
+| 13 | 13/5 | Boas práticas, refatoração | Separação em módulos, type hints, reuso via `src/normalize.py`, `src/utils.py` |
 | 14 | 20/5 | Integração de conceitos | Mapa completo (listas + dicts + for + if + funções + API + JSON) |
-| 15 | 27/5 | Algoritmos aplicados | Pipeline ANEEL + geocoding com fallback |
+| 15 | 27/5 | Algoritmos aplicados | Pipeline ANEEL + geocoding com fallback (`mapa.py:763`) |
 | 16 | 3/6 | Revisão prática | — |
 | **17** | **10/6** | **Apresentação do projeto** | **Radar Solar — este repositório** |
 | 18 | 17/6 | **AV2** | — |

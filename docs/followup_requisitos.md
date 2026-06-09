@@ -82,9 +82,9 @@ e alerta de anomalia (vermelho quando geração estimada < consumo * 0.8).
 
 **Melhorias em relação ao especificado:**
 - Botão "Solicitar Manutenção" no próprio dashboard (gatilho de lead)
-- Cálculo de economia acumulada e payback estimado
 - Visão mensal com tabela de histórico
-- Score de oportunidade para o cliente
+- Botão de cancelamento da solicitação (lead pode ser cancelado pelo cliente)
+- Alertas baseados em dois critérios: queda de geração ≥20% mês a mês e diferença geracão/injeção ≥35%
 
 ---
 
@@ -301,7 +301,7 @@ nem dependência `pytest` no projeto.
 |---|------|------------|
 | RF01 | Login Firebase + Perfil | + bloqueio de perfil conflitante |
 | RF02 | Mapa de calor ANEEL | + heatmap hierárquico, gráficos, filtros |
-| RF03 | Dashboard B2C | + alerta, economia, botão manutenção |
+| RF03 | Dashboard B2C | + alerta, botão manutenção |
 | RF04 | CRUD fatura manual | conforme especificado |
 | RF05 | Solicitar manutenção | conforme especificado |
 | RF06 | Kanban B2B | + lead manual por e-mail, WhatsApp |

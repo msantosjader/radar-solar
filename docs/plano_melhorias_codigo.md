@@ -49,6 +49,10 @@ Manter campos como `codigo_aneel`, `conta_contrato_celpe`, `modalidade_geracao`,
 
 Manter pins PJ baseados em `CnpjCache` com latitude/longitude geocodificada. Evitar fallback por CEP enquanto ele gerar pontos aproximados demais ou cards com poucos dados úteis.
 
+### SQLite em produção
+
+MVP não precisa de estratégia formal de migrações — o banco SQLite fica no diretório do projeto e `PRAGMA foreign_keys=1` já está ativado em `src/database.py`.
+
 ### Normalização
 
 Evoluir `normalize_joined_data()` incrementalmente conforme novos casos reais aparecerem nos dados ANEEL. O pipeline integrado já permite que melhorias futuras entrem no ciclo completo.
@@ -63,7 +67,6 @@ Evoluir `normalize_joined_data()` incrementalmente conforme novos casos reais ap
 |------|--------|--------------|
 | Criar testes unitários para normalização | O pipeline depende de parsing de datas, números BR, CEP e fabricantes | Testar `normalize_joined_data()`, `parse_float_series()`, `parse_int_series()` e `src.utils` |
 | Criar testes do pipeline CNPJ sem bater em APIs reais | CNPJá/Nominatim têm rate limit e tempo alto | Mockar `consultar_cnpja()` e `geocodificar()` |
-| Definir migrações reais de SQLite | `on_delete` declarado no model não altera constraints já criadas em banco existente | Criar estratégia de migração ou script versionado antes de produção |
 
 ### 🟠 Média Prioridade
 
@@ -105,4 +108,3 @@ Lista atual após os refactors já feitos:
 2. Integrar a geração dos CSVs RMR dentro de `update_aneel_data.py`.
 3. Refatorar `render_dashboard` e `render_faturas` em helpers menores.
 4. Avaliar `--refresh-days` no cache CNPJ.
-5. Definir estratégia formal de migrações SQLite antes do deploy OCI.
