@@ -167,6 +167,10 @@ uv run python scripts/update_all.py --force
 - `src/ui/pages/empresa/kanban.py`: formulário, resumo, estado vazio, colunas e cards de lead extraídos em helpers
 - `src/ui/pages/cliente/faturas.py`: colunas de tabela, listagem e formatação de rows/options extraídas em helpers
 - `src/ui/pages/cliente/perfil.py`: limpeza de campos de endereço extraída em helper
+- `src/ui/pages/public/homepage.py`: header, hero, painel do produto, cards de perfil e footer extraídos em helpers
+- `src/ui/pages/public/login.py`: configuração de perfis, intro e envio de magic link extraídos em helpers
+- `src/ui/pages/empresa/perfil.py`: campos comerciais/endereço, busca CNPJ/CEP e salvar perfil separados em helpers
+- `src/ui/pages/demo/mapa.py`: blocos HTML do mapa extraídos em helpers de renderização
 
 ---
 

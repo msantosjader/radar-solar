@@ -25,6 +25,10 @@ Melhorar manutenibilidade, segurança operacional e clareza do código sem alter
 | Reduzir duplicação no perfil cliente | ✅ Concluído | `src/ui/pages/cliente/perfil.py` |
 | Extrair helpers parciais em faturas | ✅ Concluído | `src/ui/pages/cliente/faturas.py` |
 | Adicionar flags operacionais no CNPJ | ✅ Concluído | `scripts/update_cnpj_enderecos.py`, `scripts/update_all.py` |
+| Refatorar homepage pública em helpers | ✅ Concluído | `src/ui/pages/public/homepage.py` |
+| Refatorar login público em helpers | ✅ Concluído | `src/ui/pages/public/login.py` |
+| Refatorar perfil empresa em helpers | ✅ Concluído | `src/ui/pages/empresa/perfil.py` |
+| Refatorar HTML do mapa demo em helpers | ✅ Concluído | `src/ui/pages/demo/mapa.py` |
 
 Verificações executadas:
 
@@ -89,14 +93,9 @@ Lista atual após os refactors já feitos:
 |--------|---------|----------------------|
 | `render_dashboard` | `src/ui/pages/cliente/dashboard.py` | Extrair cards, alertas, gráficos e dialogs |
 | `render_faturas` | `src/ui/pages/cliente/faturas.py` | Continuar separando handlers e blocos UI |
-| `render_perfil` | `src/ui/pages/cliente/perfil.py` | Separar card contato, card endereço, handlers CEP/salvar |
-| `render_perfil_empresa` | `src/ui/pages/empresa/perfil.py` | Separar busca CNPJ, busca CEP, campos comerciais/endereço |
-| `render_homepage` | `src/ui/pages/public/homepage.py` | Separar header, hero, cards e footer |
-| `render_login` | `src/ui/pages/public/login.py` | Separar configuração de perfil, abas e painel |
 | `carregar_instalacoes_aneel` | `src/ui/pages/demo/mapa.py` | Extrair serialização de linhas e cálculo de charts |
 | `carregar_geojson_rmr` | `src/ui/pages/demo/mapa.py` | Extrair leitura de municípios, bairros, métricas e fallback |
 | `carregar_leads_mapa` | `src/ui/pages/demo/mapa.py` | Extrair resolução de coordenadas e serialização do lead |
-| `_render_demo_mapa_content` | `src/ui/pages/demo/mapa.py` | Mover blocos HTML para constantes/helpers |
 
 ---
 
