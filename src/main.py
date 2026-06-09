@@ -21,9 +21,10 @@ criar_tabelas()
 
 # Adiciona a rota estática usando o caminho absoluto convertido em string
 app.add_static_files('/assets', str(ASSETS_DIR))
+app.add_static_files('/demo/static', str(CURRENT_DIR / 'ui' / 'pages' / 'demo' / 'static'))
 
 
-def apply_theme():
+def apply_theme() -> None:
     ui.colors(primary='#1D293B', secondary='#F97316', accent='#FFD700', dark='#0F172A')
 
 
@@ -36,23 +37,23 @@ def render_redirect(path: str, message: str = 'Redirecionando...') -> None:
 
 # --- ROTAS ---
 @ui.page('/')
-def home():
-    apply_theme() # Aplica o tema na homepage
+def home() -> None:
+    apply_theme()  # Aplica o tema na homepage
     render_homepage()
 
 @ui.page('/login')
-def login(profile: str = 'customer'):
+def login(profile: str = 'customer') -> None:
     auth = app.storage.user.get('auth')
     if auth:
         apply_theme()
         render_redirect('/cliente/dashboard' if auth.get('profile') == 'customer' else '/empresa/mapa')
         return
-    apply_theme() # Aplica o tema na página de login
+    apply_theme()  # Aplica o tema na página de login
     render_login(profile)
 
 
 @ui.page('/auth/confirm')
-def auth_confirm():
+def auth_confirm() -> None:
     auth = app.storage.user.get('auth')
     if auth:
         apply_theme()
@@ -63,13 +64,13 @@ def auth_confirm():
 
 
 @ui.page('/demo/mapa')
-def demo_mapa():
+def demo_mapa() -> None:
     apply_theme()
     render_demo_mapa()
 
 
 @ui.page('/cliente/dashboard')
-def cliente_dashboard():
+def cliente_dashboard() -> None:
     auth = app.storage.user.get('auth')
     if not auth or auth.get('profile') != 'customer':
         apply_theme()
@@ -80,7 +81,7 @@ def cliente_dashboard():
 
 
 @ui.page('/cliente/faturas')
-def cliente_faturas():
+def cliente_faturas() -> None:
     auth = app.storage.user.get('auth')
     if not auth or auth.get('profile') != 'customer':
         apply_theme()
@@ -91,7 +92,7 @@ def cliente_faturas():
 
 
 @ui.page('/cliente/perfil')
-def cliente_perfil():
+def cliente_perfil() -> None:
     auth = app.storage.user.get('auth')
     if not auth or auth.get('profile') != 'customer':
         apply_theme()
@@ -102,7 +103,7 @@ def cliente_perfil():
 
 
 @ui.page('/empresa/mapa')
-def empresa_mapa():
+def empresa_mapa() -> None:
     auth = app.storage.user.get('auth')
     if not auth or auth.get('profile') != 'company':
         apply_theme()
@@ -114,7 +115,7 @@ def empresa_mapa():
 
 
 @ui.page('/empresa/perfil')
-def empresa_perfil():
+def empresa_perfil() -> None:
     auth = app.storage.user.get('auth')
     if not auth or auth.get('profile') != 'company':
         apply_theme()
@@ -126,7 +127,7 @@ def empresa_perfil():
 
 
 @ui.page('/empresa/kanban')
-def empresa_kanban():
+def empresa_kanban() -> None:
     auth = app.storage.user.get('auth')
     if not auth or auth.get('profile') != 'company':
         apply_theme()
@@ -138,7 +139,7 @@ def empresa_kanban():
 
 
 @ui.page('/logout')
-def logout():
+def logout() -> None:
     app.storage.user.pop('auth', None)
     apply_theme()
     render_redirect('/login', 'Saindo da conta...')

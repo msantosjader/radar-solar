@@ -7,6 +7,16 @@ from nicegui import ui
 from src.models import Fatura, InstalacaoSolar, Usuario
 
 
+FATURA_TABLE_COLUMNS = [
+    {'name': 'mes_referencia', 'label': 'Mes', 'field': 'mes_referencia'},
+    {'name': 'consumo_kwh', 'label': 'Consumo (kWh)', 'field': 'consumo_kwh'},
+    {'name': 'geracao_app_kwh', 'label': 'Producao (kWh)', 'field': 'geracao_app_kwh'},
+    {'name': 'injecao_kwh', 'label': 'Injecao (kWh)', 'field': 'injecao_kwh'},
+    {'name': 'saldo_creditos', 'label': 'Creditos (kWh)', 'field': 'saldo_creditos'},
+    {'name': 'valor_fatura_rs', 'label': 'Valor (R$)', 'field': 'valor_fatura_rs'},
+]
+
+
 def _parse_float(value: Any, field_name: str, optional: bool = False) -> float | None:
     text = '' if value is None else str(value).strip()
     if not text:
@@ -102,6 +112,34 @@ def _usuario_ja_tem_fatura_na_competencia(
     return query.exists()
 
 
+def _listar_faturas_usuario(usuario_id: int) -> list[Fatura]:
+    instalacoes_ids = InstalacaoSolar.select(InstalacaoSolar.id).where(InstalacaoSolar.usuario == usuario_id)
+    return list(
+        Fatura.select()
+        .where(Fatura.instalacao.in_(instalacoes_ids))
+        .order_by(Fatura.criado_em.desc())
+    )
+
+
+def _fatura_table_row(fatura: Fatura) -> dict:
+    return {
+        'id': fatura.id,
+        'mes_referencia': fatura.mes_referencia,
+        'consumo_kwh': _format_num_br(fatura.consumo_kwh),
+        'geracao_app_kwh': _format_num_br(fatura.geracao_app_kwh),
+        'injecao_kwh': _format_num_br(fatura.injecao_kwh),
+        'saldo_creditos': _format_num_br(fatura.saldo_creditos),
+        'valor_fatura_rs': _format_moeda_br(fatura.valor_fatura_rs),
+    }
+
+
+def _fatura_select_options(faturas: list[Fatura]) -> dict[int, str]:
+    return {
+        fatura.id: f'#{fatura.id} - {fatura.mes_referencia} - {_format_moeda_br(fatura.valor_fatura_rs)}'
+        for fatura in faturas
+    }
+
+
 def render_faturas(auth: dict) -> None:
     usuario = Usuario.get_or_none(Usuario.id == auth.get('usuario_id'))
 
@@ -144,44 +182,15 @@ def render_faturas(auth: dict) -> None:
             fatura_para_editar = ui.select(options={}, label='Fatura para editar').classes('w-80')
 
             table = ui.table(
-                columns=[
-                    {'name': 'mes_referencia', 'label': 'Mes', 'field': 'mes_referencia'},
-                    {'name': 'consumo_kwh', 'label': 'Consumo (kWh)', 'field': 'consumo_kwh'},
-                    {'name': 'geracao_app_kwh', 'label': 'Producao (kWh)', 'field': 'geracao_app_kwh'},
-                    {'name': 'injecao_kwh', 'label': 'Injecao (kWh)', 'field': 'injecao_kwh'},
-                    {'name': 'saldo_creditos', 'label': 'Creditos (kWh)', 'field': 'saldo_creditos'},
-                    {'name': 'valor_fatura_rs', 'label': 'Valor (R$)', 'field': 'valor_fatura_rs'},
-                ],
+                columns=FATURA_TABLE_COLUMNS,
                 rows=[],
                 row_key='id',
             ).classes('w-full')
 
             def carregar_faturas() -> None:
-                instalacoes_ids = (
-                    InstalacaoSolar.select(InstalacaoSolar.id)
-                    .where(InstalacaoSolar.usuario == usuario.id)
-                )
-                faturas = (
-                    Fatura.select()
-                    .where(Fatura.instalacao.in_(instalacoes_ids))
-                    .order_by(Fatura.criado_em.desc())
-                )
-                table.rows = [
-                    {
-                        'id': f.id,
-                        'mes_referencia': f.mes_referencia,
-                        'consumo_kwh': _format_num_br(f.consumo_kwh),
-                        'geracao_app_kwh': _format_num_br(f.geracao_app_kwh),
-                        'injecao_kwh': _format_num_br(f.injecao_kwh),
-                        'saldo_creditos': _format_num_br(f.saldo_creditos),
-                        'valor_fatura_rs': _format_moeda_br(f.valor_fatura_rs),
-                    }
-                    for f in faturas
-                ]
-                fatura_para_editar.options = {
-                    f.id: f'#{f.id} - {f.mes_referencia} - {_format_moeda_br(f.valor_fatura_rs)}'
-                    for f in faturas
-                }
+                faturas = _listar_faturas_usuario(usuario.id)
+                table.rows = [_fatura_table_row(fatura) for fatura in faturas]
+                fatura_para_editar.options = _fatura_select_options(faturas)
                 table.update()
                 fatura_para_editar.update()
 

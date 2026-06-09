@@ -9,4 +9,4 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CAMINHO_DB = BASE_DIR / 'data' / 'radarsolar.db'
 
 # 3. Cria a instância de ligação à base de dados SQLite
-db = SqliteDatabase(CAMINHO_DB)
+db = SqliteDatabase(CAMINHO_DB, pragmas={'foreign_keys': 1})

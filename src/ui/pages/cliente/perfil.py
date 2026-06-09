@@ -1,45 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
-from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
 
 from nicegui import app, ui
 
 from src.models import InstalacaoSolar, Usuario
-
-
-def _normalizar_estado(value: Any) -> str:
-    estado = '' if value is None else str(value).strip().upper()
-    if len(estado) != 2:
-        raise ValueError('Informe a UF com 2 letras, exemplo: PE.')
-    return estado
-
-
-def _normalizar_cep(value: Any) -> str:
-    cep = re.sub(r'\D', '', '' if value is None else str(value))
-    if cep and len(cep) != 8:
-        raise ValueError('Informe um CEP valido com 8 digitos.')
-    return cep
-
-
-def _buscar_endereco_por_cep(cep: str) -> dict[str, str] | None:
-    try:
-        with urlopen(f'https://viacep.com.br/ws/{cep}/json/', timeout=8) as response:
-            data = json.loads(response.read().decode('utf-8'))
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
-        return None
-
-    if data.get('erro'):
-        return None
-
-    return {
-        'logradouro': data.get('logradouro') or '',
-        'cidade': data.get('localidade') or '',
-        'estado': data.get('uf') or '',
-    }
+from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado
 
 
 def _obter_ou_criar_instalacao(usuario_id: int) -> InstalacaoSolar:
@@ -57,6 +23,15 @@ def _obter_ou_criar_instalacao(usuario_id: int) -> InstalacaoSolar:
         cidade='',
         estado='',
     )
+
+
+def _limpar_endereco_inputs(cidade: ui.input, estado: ui.input, logradouro: ui.input) -> None:
+    cidade.value = ''
+    estado.value = ''
+    logradouro.value = ''
+    cidade.update()
+    estado.update()
+    logradouro.update()
 
 
 def render_perfil(auth: dict) -> None:
@@ -108,33 +83,18 @@ def render_perfil(auth: dict) -> None:
                 try:
                     cep_normalizado = _normalizar_cep(cep.value)
                 except ValueError as exc:
-                    cidade.value = ''
-                    estado.value = ''
-                    logradouro.value = ''
-                    cidade.update()
-                    estado.update()
-                    logradouro.update()
+                    _limpar_endereco_inputs(cidade, estado, logradouro)
                     ui.notify(str(exc), color='warning')
                     return
 
                 if not cep_normalizado:
-                    cidade.value = ''
-                    estado.value = ''
-                    logradouro.value = ''
-                    cidade.update()
-                    estado.update()
-                    logradouro.update()
+                    _limpar_endereco_inputs(cidade, estado, logradouro)
                     ui.notify('Informe um CEP para buscar o endereco.', color='warning')
                     return
 
                 endereco = _buscar_endereco_por_cep(cep_normalizado)
                 if not endereco:
-                    cidade.value = ''
-                    estado.value = ''
-                    logradouro.value = ''
-                    cidade.update()
-                    estado.update()
-                    logradouro.update()
+                    _limpar_endereco_inputs(cidade, estado, logradouro)
                     ui.notify('CEP nao encontrado.', color='warning')
                     return
 

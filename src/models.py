@@ -27,7 +27,7 @@ class Usuario(BaseModel):
 
 
 class EmpresaPerfil(BaseModel):
-    usuario = ForeignKeyField(Usuario, backref='perfil_empresa', unique=True)
+    usuario = ForeignKeyField(Usuario, backref='perfil_empresa', unique=True, on_delete='CASCADE')
     nome_fantasia = CharField(null=True)
     email_comercial = CharField(null=True)
     cep = CharField(null=True)
@@ -39,7 +39,7 @@ class EmpresaPerfil(BaseModel):
 
 
 class InstalacaoSolar(BaseModel):
-    usuario = ForeignKeyField(Usuario, backref='instalacoes')
+    usuario = ForeignKeyField(Usuario, backref='instalacoes', on_delete='CASCADE')
 
     # Chaves de Identificação e Integração
     codigo_aneel = CharField(unique=True, null=True)  # CodEmpreendimento / CodGeracaoDistribuida
@@ -78,7 +78,7 @@ class InstalacaoSolar(BaseModel):
 
 
 class Fatura(BaseModel):
-    instalacao = ForeignKeyField(InstalacaoSolar, backref='faturas')
+    instalacao = ForeignKeyField(InstalacaoSolar, backref='faturas', on_delete='CASCADE')
     mes_referencia = CharField()
     consumo_kwh = FloatField()
     injecao_kwh = FloatField(null=True)
@@ -89,8 +89,8 @@ class Fatura(BaseModel):
 
 
 class Lead(BaseModel):
-    cliente = ForeignKeyField(Usuario, backref='leads_gerados', null=True)
-    empresa_responsavel = ForeignKeyField(Usuario, backref='leads_capturados', null=True)
+    cliente = ForeignKeyField(Usuario, backref='leads_gerados', null=True, on_delete='SET NULL')
+    empresa_responsavel = ForeignKeyField(Usuario, backref='leads_capturados', null=True, on_delete='SET NULL')
     nome_contato = CharField()
     telefone_contato = CharField(null=True)
     origem = CharField()
@@ -118,22 +118,39 @@ class CnpjCache(BaseModel):
     fetched_at = DateTimeField(default=datetime.now)
 
 
-def criar_tabelas():
+def criar_tabelas() -> None:
     """Executa a criação física das tabelas dentro do ficheiro SQLite"""
     with db:
         db.create_tables([Usuario, EmpresaPerfil, InstalacaoSolar, Fatura, Lead, CnpjCache])
         migrar_lead_empresa_responsavel_nullable()
 
 
-def migrar_lead_empresa_responsavel_nullable():
+def _table_exists(table_name: str) -> bool:
+    row = db.execute_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def migrar_lead_empresa_responsavel_nullable() -> None:
     """Permite que leads nasçam abertos, sem integrador responsável."""
+    if not _table_exists('lead'):
+        return
+
     colunas = list(db.execute_sql("PRAGMA table_info('lead')"))
     empresa_coluna = next((coluna for coluna in colunas if coluna[1] == 'empresa_responsavel_id'), None)
     if not empresa_coluna or empresa_coluna[3] == 0:
         return
 
+    tabela_antiga = 'lead_old_empresa_not_null'
+    if _table_exists(tabela_antiga):
+        raise RuntimeError(
+            f'Migracao de lead interrompida: tabela temporaria {tabela_antiga!r} ja existe.'
+        )
+
     with db.atomic():
-        db.execute_sql('ALTER TABLE lead RENAME TO lead_old_empresa_not_null')
+        db.execute_sql(f'ALTER TABLE lead RENAME TO {tabela_antiga}')
         db.create_tables([Lead])
         db.execute_sql('''
             INSERT INTO lead (
@@ -147,4 +164,4 @@ def migrar_lead_empresa_responsavel_nullable():
                 valor_estimado_rs, status
             FROM lead_old_empresa_not_null
         ''')
-        db.execute_sql('DROP TABLE lead_old_empresa_not_null')
+        db.execute_sql(f'DROP TABLE {tabela_antiga}')

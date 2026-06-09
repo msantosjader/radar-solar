@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+from datetime import datetime
 import json
 import sys
 import time
@@ -195,63 +197,97 @@ def atualizar_parquet() -> None:
         print(f'  Parquet salvo.')
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Atualiza cache CNPJ e enriquece parquets ANEEL.')
+    parser.add_argument('--limit', type=int, default=None, help='Processa no maximo N CNPJs pendentes.')
+    parser.add_argument('--dry-run', action='store_true', help='Lista pendencias sem consultar APIs nem gravar dados.')
+    parser.add_argument('--skip-geocode', action='store_true', help='Consulta CNPJa sem geocodificar no Nominatim.')
+    parser.add_argument('--parquet-only', action='store_true', help='Apenas aplica cache existente no parquet.')
+    parser.add_argument('--no-parquet', action='store_true', help='Nao atualiza o parquet ao final.')
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
     db.connect()
     db.create_tables([CnpjCache])
 
-    ja_cacheados = {c.cnpj for c in CnpjCache.select(CnpjCache.cnpj)}
-    cnpjs_pendentes = [c for c in carregar_cnpjs_do_csv() if c not in ja_cacheados]
-
-    print(f'CNPJs no CSV: {len(ja_cacheados) + len(cnpjs_pendentes)}')
-    print(f'Ja cacheados: {len(ja_cacheados)}')
-    print(f'Pendentes: {len(cnpjs_pendentes)}')
-
-    if not cnpjs_pendentes:
-        print('Nada a fazer.')
+    if args.parquet_only:
         print('Atualizando parquet com dados do cache...')
         atualizar_parquet()
         db.close()
         return 0
 
-    for i, cnpj in enumerate(cnpjs_pendentes, start=1):
-        print(f'[{i}/{len(cnpjs_pendentes)}] Consultando {cnpj}...')
-        dados = consultar_cnpja(cnpj)
-        if dados is None:
-            print(f'  Pulando {cnpj} apos erro.')
-            time.sleep(CNPJA_DELAY_SECONDS)
-            continue
+    try:
+        cnpjs_csv = carregar_cnpjs_do_csv()
+        ja_cacheados = {c.cnpj for c in CnpjCache.select(CnpjCache.cnpj)}
+        cnpjs_pendentes = [c for c in cnpjs_csv if c not in ja_cacheados]
 
-        endereco = montar_endereco_completo(dados)
-        lat = lng = None
-        if endereco:
-            print(f'  Geocodificando: {endereco}')
-            lat, lng = geocodificar(endereco)
-            if lat and lng:
-                print(f'    -> {lat:.5f}, {lng:.5f}')
-            else:
-                print('    -> sem coordenadas')
-            time.sleep(GEOCODING_DELAY)
+        print(f'CNPJs no CSV: {len(cnpjs_csv)}')
+        print(f'Ja cacheados: {len(ja_cacheados)}')
+        print(f'Pendentes: {len(cnpjs_pendentes)}')
 
-        with db.atomic():
-            CnpjCache.get_or_create(
-                cnpj=only_digits(dados.get('taxId', cnpj)),
-                defaults={
-                    **extrair_dados_cnpj(dados),
-                    'latitude': lat,
-                    'longitude': lng,
-                    'fetched_at': __import__('datetime').datetime.now(),
-                },
-            )
+        if args.limit is not None:
+            cnpjs_pendentes = cnpjs_pendentes[:max(args.limit, 0)]
+            print(f'Limite aplicado: {len(cnpjs_pendentes)}')
 
-        if i < len(cnpjs_pendentes):
-            time.sleep(CNPJA_DELAY_SECONDS)
+        if args.dry_run:
+            for cnpj in cnpjs_pendentes:
+                print(f'Pendente: {cnpj}')
+            print('Dry-run concluido sem consultas ou gravacoes.')
+            return 0
 
-    print('Atualizando parquet com dados do cache...')
-    atualizar_parquet()
+        if not cnpjs_pendentes:
+            print('Nada a fazer.')
+            if not args.no_parquet:
+                print('Atualizando parquet com dados do cache...')
+                atualizar_parquet()
+            return 0
 
-    print('Concluido.')
-    db.close()
-    return 0
+        for i, cnpj in enumerate(cnpjs_pendentes, start=1):
+            print(f'[{i}/{len(cnpjs_pendentes)}] Consultando {cnpj}...')
+            dados = consultar_cnpja(cnpj)
+            if dados is None:
+                print(f'  Pulando {cnpj} apos erro.')
+                time.sleep(CNPJA_DELAY_SECONDS)
+                continue
+
+            endereco = montar_endereco_completo(dados)
+            lat = lng = None
+            if endereco and not args.skip_geocode:
+                print(f'  Geocodificando: {endereco}')
+                lat, lng = geocodificar(endereco)
+                if lat and lng:
+                    print(f'    -> {lat:.5f}, {lng:.5f}')
+                else:
+                    print('    -> sem coordenadas')
+                time.sleep(GEOCODING_DELAY)
+            elif endereco:
+                print('  Geocodificacao pulada (--skip-geocode).')
+
+            with db.atomic():
+                CnpjCache.get_or_create(
+                    cnpj=only_digits(dados.get('taxId', cnpj)),
+                    defaults={
+                        **extrair_dados_cnpj(dados),
+                        'latitude': lat,
+                        'longitude': lng,
+                        'fetched_at': datetime.now(),
+                    },
+                )
+
+            if i < len(cnpjs_pendentes):
+                time.sleep(CNPJA_DELAY_SECONDS)
+
+        if not args.no_parquet:
+            print('Atualizando parquet com dados do cache...')
+            atualizar_parquet()
+
+        print('Concluido.')
+        return 0
+    finally:
+        if not db.is_closed():
+            db.close()
 
 
 if __name__ == '__main__':
