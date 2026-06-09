@@ -1018,7 +1018,14 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             font-size: 12px;
             font-weight: 800;
             padding: 10px 12px;
+            text-align: center;
             text-transform: uppercase;
+            width: 156px;
+        }
+        .rs-label-toggle-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
         #demo-mapa-rmr.rs-hide-labels .rs-map-label {
             display: none;
@@ -1388,6 +1395,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             let legendBody = null;
             let unidentifiedBody = null;
             let backControlButton = null;
+            let backControlWrapper = null;
             let labelsVisible = true;
             const pageSize = 100;
 
@@ -1855,7 +1863,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                         bubblingMouseEvents: false,
                     }});
                     const logradouro = pj.logradouro
-                        ? `${{escapeHtml(pj.logradouro)}}${{pj.numero ? ', ' + escapeHtml(pj.numero) : ''}}`
+                        ? `${{escapeHtml(String(pj.logradouro).toUpperCase())}}${{pj.numero ? ', ' + escapeHtml(String(pj.numero).toUpperCase()) : ''}}`
                         : '-';
                     const cidadeUf = pj.municipio
                         ? `${{escapeHtml(String(pj.municipio).toUpperCase())}}${{pj.uf ? '/' + escapeHtml(String(pj.uf).toUpperCase()) : ''}}`
@@ -1867,13 +1875,13 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                     marker.bindPopup(`
                         <div style="font-size:13px;line-height:1.6">
                         <strong>${{escapeHtml(pj.codigo)}}</strong><br>
+                        <div style="border-top:1px solid #e2e8f0;margin:7px 0"></div>
                         CNPJ: ${{formatCnpj(pj.cnpj)}}<br>
                         ${{escapeHtml(pj.titular)}}<br>
                         ${{logradouro}}, ${{cidadeUf}}<br>
                         CEP: ${{pj.cep ? formatCep(pj.cep) : '-'}}<br>
                         <div style="border-top:1px solid #e2e8f0;margin:7px 0"></div>
                         <strong>Instalação de ${{pj.data_instalacao ? escapeHtml(pj.data_instalacao) : '-'}}</strong><br>
-                        Dados<br>
                         ${{modulosPotencia}}
                         <div style="border-top:1px solid #e2e8f0;margin:7px 0"></div>
                         <strong>Contato</strong><br>
@@ -1936,7 +1944,6 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                     if ((data.pjs || []).length) {{
                         const pjBtn = L.DomUtil.create('button', 'rs-label-toggle');
                         pjBtn.type = 'button';
-                        pjBtn.style.marginTop = '4px';
                         L.DomEvent.on(pjBtn, 'click', (event) => {{
                             L.DomEvent.preventDefault(event);
                             pjVisible = !pjVisible;
@@ -1959,22 +1966,26 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             function updateBackControl() {{
                 if (!backControlButton) return;
                 backControlButton.style.display = viewMode === 'municipio' ? 'block' : 'none';
+                if (backControlWrapper) backControlWrapper.style.display = viewMode === 'municipio' ? 'block' : 'none';
             }}
 
             function addBackControl() {{
-                const control = L.control({{ position: 'topright' }});
+                const control = L.control({{ position: 'topleft' }});
                 control.onAdd = () => {{
+                    const wrapper = L.DomUtil.create('div', 'rs-map-back-wrapper');
                     const button = L.DomUtil.create('button', 'rs-map-back-control');
                     button.type = 'button';
                     button.textContent = 'Voltar';
                     backControlButton = button;
-                    L.DomEvent.disableClickPropagation(button);
+                    backControlWrapper = wrapper;
+                    L.DomEvent.disableClickPropagation(wrapper);
                     L.DomEvent.on(button, 'click', (event) => {{
                         L.DomEvent.preventDefault(event);
                         if (viewMode === 'municipio') resetToRmr();
                     }});
+                    wrapper.appendChild(button);
                     updateBackControl();
-                    return button;
+                    return wrapper;
                 }};
                 control.addTo(map);
             }}
@@ -2153,8 +2164,8 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             }}));
             addLegend();
             addUnidentifiedBox();
-            addLabelToggle();
             addBackControl();
+            addLabelToggle();
             addLeadLegend();
             renderLeadPins();
             renderPjPins();
