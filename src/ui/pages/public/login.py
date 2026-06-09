@@ -1,39 +1,83 @@
+from typing import Any
+
 from nicegui import ui
 
 from src.auth import PerfilConflitanteError, validar_email_para_profile
 from src.ui.pages.public import inject_firebase_auth, inject_public_styles
 
 
-def render_login(selected_profile: str = 'customer'):
+PROFILE_CONFIG = {
+    'customer': {
+        'title': 'Gerador de energia',
+        'subtitle': 'Acompanhe geração, créditos e detalhes da conta de luz.',
+        'accent': 'secondary',
+        'icon': 'bolt',
+        'button': 'Enviar link de acesso',
+        'helper': 'Veja geração, compensação, saldo de créditos e sinais de inconsistência.',
+        'chip': 'Fluxo do gerador',
+        'tab_class': 'customer',
+        'panel_class': 'customer',
+        'input_label': 'E-mail do gerador',
+    },
+    'company': {
+        'title': 'Integrador solar',
+        'subtitle': 'Acesse o radar comercial e os sinais de manutenção na região.',
+        'accent': 'primary',
+        'icon': 'travel_explore',
+        'button': 'Enviar link de acesso',
+        'helper': 'Acompanhe oportunidades de atendimento, O&M e conexão com clientes da região.',
+        'chip': 'Fluxo do integrador',
+        'tab_class': 'company',
+        'panel_class': 'company',
+        'input_label': 'E-mail do integrador',
+    },
+}
+
+
+def _render_login_intro() -> None:
+    with ui.column().classes('justify-center gap-5 py-4 rs-animate-up'):
+        ui.image('/assets/images/logo_radarsolar.png').classes('w-52 max-w-full')
+        ui.label('Acesso à plataforma').classes('text-5xl font-bold text-slate-900')
+        ui.label(
+            'Entre com o e-mail vinculado ao seu uso do Radar Solar. O link de acesso é enviado '
+            'na hora e leva você direto para o fluxo correto.'
+        ).classes('max-w-xl text-base text-slate-600 leading-7')
+        ui.label(
+            'Geradores acompanham usina, créditos e faturamento. Integradores acompanham oportunidades, '
+            'atendimento e operação comercial na região.'
+        ).classes('max-w-xl text-sm text-slate-500 leading-6')
+
+
+async def _send_magic_link(email: Any, active_profile: dict[str, str]) -> None:
+    current_email = (email.value or '').strip()
+    if not current_email:
+        ui.notify('Informe o e-mail para receber o link.', type='warning')
+        return
+    try:
+        current_email = validar_email_para_profile(current_email, active_profile['value'])
+    except PerfilConflitanteError as exc:
+        ui.notify(str(exc), type='warning')
+        return
+
+    result = await ui.run_javascript(
+        (
+            '(async () => {'
+            f'  return await window.radarSolarAuth.sendMagicLink({current_email!r}, {active_profile["value"]!r});'
+            '})()'
+        ),
+        timeout=60,
+    )
+    if result and result.get('ok'):
+        ui.notify('Link de acesso enviado. Verifique seu e-mail.', type='positive')
+    else:
+        ui.notify(result.get('error', 'Nao foi possivel enviar o magic link.'), type='negative')
+
+
+def render_login(selected_profile: str = 'customer') -> None:
     inject_public_styles()
     inject_firebase_auth()
 
-    profiles = {
-        'customer': {
-            'title': 'Gerador de energia',
-            'subtitle': 'Acompanhe geração, créditos e detalhes da conta de luz.',
-            'accent': 'secondary',
-            'icon': 'bolt',
-            'button': 'Enviar link de acesso',
-            'helper': 'Veja geração, compensação, saldo de créditos e sinais de inconsistência.',
-            'chip': 'Fluxo do gerador',
-            'tab_class': 'customer',
-            'panel_class': 'customer',
-            'input_label': 'E-mail do gerador',
-        },
-        'company': {
-            'title': 'Integrador solar',
-            'subtitle': 'Acesse o radar comercial e os sinais de manutenção na região.',
-            'accent': 'primary',
-            'icon': 'travel_explore',
-            'button': 'Enviar link de acesso',
-            'helper': 'Acompanhe oportunidades de atendimento, O&M e conexão com clientes da região.',
-            'chip': 'Fluxo do integrador',
-            'tab_class': 'company',
-            'panel_class': 'company',
-            'input_label': 'E-mail do integrador',
-        },
-    }
+    profiles = PROFILE_CONFIG
     if selected_profile not in profiles:
         selected_profile = 'customer'
 
@@ -42,17 +86,7 @@ def render_login(selected_profile: str = 'customer'):
 
     with ui.column().classes('w-full items-center justify-center min-h-screen px-4 py-10'):
         with ui.row().classes('rs-login-shell'):
-            with ui.column().classes('justify-center gap-5 py-4 rs-animate-up'):
-                ui.image('/assets/images/logo_radarsolar.png').classes('w-52 max-w-full')
-                ui.label('Acesso à plataforma').classes('text-5xl font-bold text-slate-900')
-                ui.label(
-                    'Entre com o e-mail vinculado ao seu uso do Radar Solar. O link de acesso é enviado '
-                    'na hora e leva você direto para o fluxo correto.'
-                ).classes('max-w-xl text-base text-slate-600 leading-7')
-                ui.label(
-                    'Geradores acompanham usina, créditos e faturamento. Integradores acompanham oportunidades, '
-                    'atendimento e operação comercial na região.'
-                ).classes('max-w-xl text-sm text-slate-500 leading-6')
+            _render_login_intro()
 
             with ui.card().classes('rs-panel rs-login-panel rs-animate-up rs-animate-up-delay-1 rounded-3xl w-full max-w-2xl p-8 gap-5') as panel:
                 badge = ui.label('').classes('text-sm font-semibold')
@@ -84,28 +118,7 @@ def render_login(selected_profile: str = 'customer'):
                     )
 
                 async def send_magic_link() -> None:
-                    current_email = (email.value or '').strip()
-                    if not current_email:
-                        ui.notify('Informe o e-mail para receber o link.', type='warning')
-                        return
-                    try:
-                        current_email = validar_email_para_profile(current_email, active_profile['value'])
-                    except PerfilConflitanteError as exc:
-                        ui.notify(str(exc), type='warning')
-                        return
-
-                    result = await ui.run_javascript(
-                        (
-                            '(async () => {'
-                            f'  return await window.radarSolarAuth.sendMagicLink({current_email!r}, {active_profile["value"]!r});'
-                            '})()'
-                        ),
-                        timeout=60,
-                    )
-                    if result and result.get('ok'):
-                        ui.notify('Link de acesso enviado. Verifique seu e-mail.', type='positive')
-                    else:
-                        ui.notify(result.get('error', 'Nao foi possivel enviar o magic link.'), type='negative')
+                    await _send_magic_link(email, active_profile)
 
                 action = ui.button('', on_click=send_magic_link).classes('w-full py-3 text-base font-semibold rounded-xl rs-button-soft')
                 ui.link('Voltar para a página inicial', '/').classes('text-sm text-slate-500')

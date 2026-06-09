@@ -858,22 +858,15 @@ def render_demo_mapa(show_header: bool = True, include_leads: bool = False) -> N
     _render_demo_mapa_content(data_url, show_header=show_header)
 
 
-def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
+def _render_mapa_header() -> None:
+    with ui.row().classes('w-full items-end justify-between gap-4'):
+        with ui.column().classes('gap-1'):
+            ui.label('Demo mapa RMR').classes('text-3xl font-bold text-slate-900')
+            ui.label('Mapa de calor municipal com dados de geracao distribuida da ANEEL.').classes('text-base text-slate-600')
 
-    ui.add_head_html('<link rel="stylesheet" href="/demo/static/mapa.css">')
 
-    container_classes = 'w-full gap-5 p-6'
-    if show_header:
-        container_classes += ' min-h-screen'
-
-    with ui.column().classes(container_classes):
-        if show_header:
-            with ui.row().classes('w-full items-end justify-between gap-4'):
-                with ui.column().classes('gap-1'):
-                    ui.label('Demo mapa RMR').classes('text-3xl font-bold text-slate-900')
-                    ui.label('Mapa de calor municipal com dados de geracao distribuida da ANEEL.').classes('text-base text-slate-600')
-
-        ui.html('''
+def _render_mapa_summary() -> None:
+    ui.html('''
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="rs-map-controls">
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -896,11 +889,11 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 </div>
             </div>
         </section>
-        ''').classes('w-full')
+    ''').classes('w-full')
 
-        ui.html('<div id="demo-mapa-rmr">Carregando dados do mapa...</div>').classes('w-full')
 
-        ui.html('''
+def _render_mapa_charts() -> None:
+    ui.html('''
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="rs-chart-title mb-4 text-xl font-bold text-slate-900">Graficos - RMR</div>
             <div class="mb-2 text-xs font-bold uppercase text-slate-500">Barras</div>
@@ -938,9 +931,11 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 </div>
             </div>
         </section>
-        ''').classes('w-full')
+    ''').classes('w-full')
 
-        ui.html('''
+
+def _render_mapa_table() -> None:
+    ui.html('''
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -1004,9 +999,30 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 </table>
             </div>
         </section>
-        ''').classes('w-full')
+    ''').classes('w-full')
 
+
+def _inject_mapa_script(data_url: str) -> None:
     ui.add_body_html(f'''
     <script>window.DATA_URL = {json.dumps(data_url)};</script>
     <script src="/demo/static/mapa.js"></script>
     ''')
+
+
+def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
+    ui.add_head_html('<link rel="stylesheet" href="/demo/static/mapa.css">')
+
+    container_classes = 'w-full gap-5 p-6'
+    if show_header:
+        container_classes += ' min-h-screen'
+
+    with ui.column().classes(container_classes):
+        if show_header:
+            _render_mapa_header()
+
+        _render_mapa_summary()
+        ui.html('<div id="demo-mapa-rmr">Carregando dados do mapa...</div>').classes('w-full')
+        _render_mapa_charts()
+        _render_mapa_table()
+
+    _inject_mapa_script(data_url)
