@@ -174,7 +174,11 @@ uv run python scripts/update_all.py --force
 
 ---
 
-## 5. Próximas Melhorias (Pendentes)
+## 5. Decisão: SQLite sem migrações formais no MVP
+
+`PRAGMA foreign_keys=1` já está ativo em `src/database.py`. Para um MVP o SQLite no diretório do projeto é suficiente. Estratégia formal de migração fica postergada para depois do MVP, se necessário.
+
+## 6. Próximas Melhorias (Pendentes)
 
 Priorizadas no `docs/plano_melhorias_codigo.md`:
 
