@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -9,10 +8,7 @@ from urllib.request import urlopen
 from nicegui import app, ui
 
 from src.models import EmpresaPerfil, Usuario
-
-
-def _only_digits(value: Any) -> str:
-    return re.sub(r'\D', '', '' if value is None else str(value))
+from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado, _only_digits
 
 
 def _normalizar_cnpj(value: Any) -> str:
@@ -20,20 +16,6 @@ def _normalizar_cnpj(value: Any) -> str:
     if cnpj and len(cnpj) != 14:
         raise ValueError('Informe um CNPJ valido com 14 digitos.')
     return cnpj
-
-
-def _normalizar_cep(value: Any) -> str:
-    cep = _only_digits(value)
-    if cep and len(cep) != 8:
-        raise ValueError('Informe um CEP valido com 8 digitos.')
-    return cep
-
-
-def _normalizar_estado(value: Any) -> str:
-    estado = '' if value is None else str(value).strip().upper()
-    if estado and len(estado) != 2:
-        raise ValueError('Informe a UF com 2 letras, exemplo: PE.')
-    return estado
 
 
 def _buscar_cnpj(cnpj: str) -> dict[str, str] | None:
@@ -53,23 +35,6 @@ def _buscar_cnpj(cnpj: str) -> dict[str, str] | None:
         'numero': data.get('numero') or '',
         'complemento': data.get('complemento') or '',
         'cidade': data.get('municipio') or '',
-        'estado': data.get('uf') or '',
-    }
-
-
-def _buscar_endereco_por_cep(cep: str) -> dict[str, str] | None:
-    try:
-        with urlopen(f'https://viacep.com.br/ws/{cep}/json/', timeout=8) as response:
-            data = json.loads(response.read().decode('utf-8'))
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
-        return None
-
-    if data.get('erro'):
-        return None
-
-    return {
-        'logradouro': data.get('logradouro') or '',
-        'cidade': data.get('localidade') or '',
         'estado': data.get('uf') or '',
     }
 

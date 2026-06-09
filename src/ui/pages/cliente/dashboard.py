@@ -6,6 +6,7 @@ from typing import Any
 
 from nicegui import ui
 from src.models import Fatura, InstalacaoSolar, Lead, Usuario
+from src.utils import _format_datetime_br, _normalizar_estado
 
 
 LIMIAR_QUEDA_GERACAO_PERCENT = 20.0
@@ -20,19 +21,6 @@ def _format_kwh(value: float | None) -> str:
 
 def _format_percent(value: float) -> str:
     return f'{value:.1f}%'.replace('.', ',')
-
-
-def _format_datetime_br(value: datetime | None) -> str:
-    if value is None:
-        return '-'
-    return value.strftime('%d/%m/%Y as %H:%M')
-
-
-def _normalizar_estado(value: Any) -> str:
-    estado = '' if value is None else str(value).strip().upper()
-    if len(estado) != 2:
-        raise ValueError('Informe a UF com 2 letras, exemplo: PE.')
-    return estado
 
 
 def _obter_faturas_usuario(usuario_id: int) -> list[Fatura]:
