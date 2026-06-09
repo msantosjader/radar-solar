@@ -19,7 +19,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 EMPREENDIMENTOS_CSV = BASE_DIR / 'data' / 'processed' / 'aneel' / 'empreendimento-geracao-distribuida-rmr.csv'
 PARQUET_PATH = BASE_DIR / 'data' / 'processed' / 'aneel' / 'rmr_instalacoes.parquet'
 
-DELAY_SECONDS = 3.5
+CNPJA_DELAY_SECONDS = 12.5
+GEOCODING_DELAY = 1.1
+CNPJA_URL = 'https://open.cnpja.com/office'
+NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 
 
 def only_digits(value: object) -> str:
@@ -54,8 +57,8 @@ def carregar_cnpjs_do_csv() -> list[str]:
     return sorted(cnpjs_unicos)
 
 
-def consultar_brasilapi(cnpj: str) -> dict | None:
-    url = f'https://brasilapi.com.br/api/cnpj/v1/{cnpj}'
+def consultar_cnpja(cnpj: str) -> dict | None:
+    url = f'{CNPJA_URL}/{cnpj}'
     request = Request(url, headers={'User-Agent': 'RadarSolar/1.0'})
     try:
         with urlopen(request, timeout=10) as response:
@@ -63,11 +66,11 @@ def consultar_brasilapi(cnpj: str) -> dict | None:
     except HTTPError as exc:
         if exc.code == 404:
             print(f'  CNPJ {cnpj} nao encontrado (404)')
-            return {'cnpj': cnpj, 'razao_social': None}
+            return {'taxId': cnpj, 'company': {}}
         if exc.code == 429:
-            print(f'  Rate limited. Aguardando...')
-            time.sleep(10)
-            return consultar_brasilapi(cnpj)
+            print(f'  Rate limited. Aguardando 60s...')
+            time.sleep(60)
+            return consultar_cnpja(cnpj)
         print(f'  HTTP {exc.code} para {cnpj}')
         return None
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
@@ -76,32 +79,41 @@ def consultar_brasilapi(cnpj: str) -> dict | None:
 
 
 def extrair_dados_cnpj(dados: dict) -> dict:
-    endereco = dados.get('estabelecimento') or dados
+    endereco = dados.get('address') or {}
+    empresa = dados.get('company') or {}
+    telefones = dados.get('phones') or []
+    emails = dados.get('emails') or []
+
+    def telefone_formatado(pos: int) -> str | None:
+        if pos >= len(telefones):
+            return None
+        telefone = telefones[pos] or {}
+        area = telefone.get('area') or ''
+        numero = telefone.get('number') or ''
+        valor = f'{area} {numero}'.strip()
+        return valor or None
+
     return {
-        'cnpj': only_digits(dados.get('cnpj', '')),
-        'razao_social': dados.get('razao_social'),
-        'nome_fantasia': dados.get('nome_fantasia'),
-        'logradouro': endereco.get('logradouro'),
-        'numero': endereco.get('numero'),
-        'complemento': endereco.get('complemento'),
-        'cep': only_digits(endereco.get('cep', '')),
-        'bairro': endereco.get('bairro'),
-        'cidade': endereco.get('cidade'),
-        'estado': endereco.get('uf') or endereco.get('estado'),
-        'telefone1': endereco.get('telefone1'),
-        'telefone2': endereco.get('telefone2'),
-        'email': endereco.get('email'),
+        'cnpj': only_digits(dados.get('taxId', '')),
+        'razao_social': empresa.get('name'),
+        'nome_fantasia': dados.get('alias'),
+        'logradouro': endereco.get('street'),
+        'numero': endereco.get('number'),
+        'complemento': endereco.get('details'),
+        'cep': only_digits(endereco.get('zip', '')),
+        'bairro': endereco.get('district'),
+        'cidade': endereco.get('city'),
+        'estado': endereco.get('state'),
+        'telefone1': telefone_formatado(0),
+        'telefone2': telefone_formatado(1),
+        'email': (emails[0] or {}).get('address') if emails else None,
     }
 
 
-GEOCODING_DELAY = 1.1
-NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
-
-
 def montar_endereco_completo(dados: dict) -> str | None:
-    end = dados.get('estabelecimento') or dados
-    partes = [end.get('logradouro'), end.get('numero'), end.get('bairro'),
-              end.get('cidade'), end.get('uf') or end.get('estado')]
+    end = dados.get('address') or {}
+    partes = [end.get('street'), end.get('number'), end.get('district'),
+              end.get('city'), end.get('state'), 'Brasil']
     partes = [p for p in partes if p]
     if not partes:
         return None
@@ -196,15 +208,17 @@ def main() -> int:
 
     if not cnpjs_pendentes:
         print('Nada a fazer.')
+        print('Atualizando parquet com dados do cache...')
+        atualizar_parquet()
         db.close()
         return 0
 
     for i, cnpj in enumerate(cnpjs_pendentes, start=1):
         print(f'[{i}/{len(cnpjs_pendentes)}] Consultando {cnpj}...')
-        dados = consultar_brasilapi(cnpj)
+        dados = consultar_cnpja(cnpj)
         if dados is None:
             print(f'  Pulando {cnpj} apos erro.')
-            time.sleep(DELAY_SECONDS)
+            time.sleep(CNPJA_DELAY_SECONDS)
             continue
 
         endereco = montar_endereco_completo(dados)
@@ -220,7 +234,7 @@ def main() -> int:
 
         with db.atomic():
             CnpjCache.get_or_create(
-                cnpj=only_digits(dados.get('cnpj', cnpj)),
+                cnpj=only_digits(dados.get('taxId', cnpj)),
                 defaults={
                     **extrair_dados_cnpj(dados),
                     'latitude': lat,
@@ -230,7 +244,7 @@ def main() -> int:
             )
 
         if i < len(cnpjs_pendentes):
-            time.sleep(DELAY_SECONDS)
+            time.sleep(CNPJA_DELAY_SECONDS)
 
     print('Atualizando parquet com dados do cache...')
     atualizar_parquet()
