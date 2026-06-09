@@ -37,7 +37,7 @@ Uma aplicação web com dois perfis de acesso:
 ## Arquitetura
 
 ```
-run.py
+main.py
   └── src.main
         ├── src.database       (SQLite + PRAGMA foreign_keys)
         ├── src.models         (6 modelos: Usuario, InstalacaoSolar,
@@ -63,7 +63,7 @@ scripts/
 
 ```
 radar-solar/
-├── run.py              # Chave de ignição
+├── main.py             # Chave de ignição
 ├── src/                # Código fonte
 │   ├── main.py         # Rotas e inicialização
 │   ├── models.py       # Modelos do banco
@@ -106,7 +106,7 @@ uv sync
 uv run python scripts/init_db.py
 
 # Iniciar servidor
-uv run python run.py
+uv run python main.py
 # Acessar http://localhost:8080
 
 # Pipeline de dados (opcional, para atualizar mapa)
