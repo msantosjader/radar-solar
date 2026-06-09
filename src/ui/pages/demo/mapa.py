@@ -1017,6 +1017,9 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
             top: 8px;
             width: 8px;
         }
+        .leaflet-popup-pane {
+            z-index: 12000;
+        }
         .rs-label-toggle,
         .rs-map-back-control {
             background: rgba(255, 255, 255, 0.94);
@@ -1843,7 +1846,11 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
 
             function renderPjPins() {{
                 pjLayer.clearLayers();
-                (data.pjs || []).forEach((pj) => {{
+                const pjs = (data.pjs || []).filter((pj) => {{
+                    if (!(viewMode === 'municipio' && selectedMunicipio)) return true;
+                    return String(pj.municipio || '').toUpperCase() === String(selectedMunicipio.nome || '').toUpperCase();
+                }});
+                pjs.forEach((pj) => {{
                     const lat = Number(pj.lat);
                     const lng = Number(pj.lng);
                     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -1855,6 +1862,10 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                         popupAnchor: [0, -38],
                     }});
                     const marker = L.marker([lat, lng], {{ icon, pane: 'leadPane', zIndexOffset: 9000 }});
+                    marker.on('click', () => {{
+                        marker.setZIndexOffset(20000);
+                        marker.openPopup();
+                    }});
                     const logradouro = pj.logradouro
                         ? `${{escapeHtml(pj.logradouro)}}${{pj.numero ? ', ' + escapeHtml(pj.numero) : ''}}`
                         : '-';
@@ -1870,8 +1881,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                         <strong>${{escapeHtml(pj.codigo)}}</strong><br>
                         ${{escapeHtml(pj.titular)}}<br>
                         ${{formatCnpj(pj.cnpj)}}<br>
-                        ${{logradouro}}<br>
-                        ${{cidadeUf}}<br>
+                        ${{logradouro}}, ${{cidadeUf}}<br>
                         ${{pj.cep ? formatCep(pj.cep) : '-'}}<br>
                         ${{pj.data_instalacao ? escapeHtml(pj.data_instalacao) : '-'}}<br>
                         ${{modulosPotencia}}<br>
@@ -2107,6 +2117,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                             updateSummary();
                             renderInstallations(1);
                             renderBairros(feature.properties.codigo, feature.properties.nome);
+                            renderPjPins();
                             renderCharts(feature.properties.nome);
                         }});
                     }},
@@ -2127,6 +2138,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 filterFabInv.value = '';
                 updateBairroFilter();
                 renderMunicipios();
+                renderPjPins();
                 renderCharts();
                 renderInstallations(1);
             }}
@@ -2136,6 +2148,7 @@ def _render_demo_mapa_content(data_url: str, show_header: bool = True) -> None:
                 if (select !== filterBairro && select !== filterFabMod && select !== filterFabInv && select !== filterModalidade) updateBairroFilter();
                 if (viewMode === 'municipio' && selectedMunicipio) renderBairros(selectedMunicipio.codigo, selectedMunicipio.nome);
                 else renderMunicipios();
+                renderPjPins();
                 updateSummary();
                 renderInstallations(1);
                 if (viewMode === 'municipio' && selectedMunicipio) renderCharts(selectedMunicipio.nome);
