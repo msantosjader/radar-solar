@@ -15,6 +15,7 @@ def _nav_bar() -> None:
             ui.link('Modularização', '#modularizacao').classes('text-sm text-slate-600 hover:text-secondary no-underline')
             ui.link('CRUD', '#crud').classes('text-sm text-slate-600 hover:text-secondary no-underline')
             ui.link('Algoritmos', '#algoritmos').classes('text-sm text-slate-600 hover:text-secondary no-underline')
+            ui.link('Stack', '#stack').classes('text-sm text-slate-600 hover:text-secondary no-underline')
             ui.link('Mapa', '/demo/mapa').classes('text-sm text-secondary font-semibold no-underline')
 
 
@@ -44,6 +45,18 @@ def _evidence(title: str, file_ref: str, explanation: str, code: str) -> None:
                 ui.label(explanation).classes('text-base text-slate-600 leading-relaxed')
             with ui.column().classes('w-full max-w-xl'):
                 _code_quote(code)
+
+
+def _stack_card(name: str, description: str, image_url: str) -> None:
+    with ui.card().classes(
+        'p-5 rounded-2xl border border-slate-200 bg-white shadow-sm '
+        'rs-animate-up hover:shadow-lg transition-shadow min-h-48'
+    ):
+        with ui.row().classes('items-center gap-4'):
+            ui.image(image_url).classes('w-12 h-12 object-contain')
+            with ui.column().classes('gap-1'):
+                ui.label(name).classes('text-lg font-bold text-slate-900')
+                ui.label(description).classes('text-sm text-slate-600 leading-relaxed')
 
 
 def _anchor(anchor_id: str) -> None:
@@ -328,6 +341,61 @@ if not args.skip_cnpj:
     code = _run('update_cnpj_enderecos.py', '3/3: Enriquecimento CNPJ')
     if code != 0:
         return code""",
+                )
+
+        with ui.column().classes('w-full items-center gap-10 py-24 px-6 bg-white'):
+            _anchor('stack')
+            _section_header(
+                'Stack utilizada',
+                'A implementação combina uma aplicação web em Python, banco SQLite, processamento analítico com Pandas, '
+                'mapas interativos no navegador e autenticação externa com Firebase.',
+            )
+
+            with ui.grid(columns=3).classes('w-full max-w-5xl gap-5 max-[900px]:grid-cols-2 max-[650px]:grid-cols-1'):
+                _stack_card(
+                    'Python + NiceGUI',
+                    'Base da aplicação web, rotas, interface e orquestração das telas.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg',
+                )
+                _stack_card(
+                    'SQLite + Peewee',
+                    'Banco local do MVP e ORM usado nos modelos de usuário, faturas, leads e cache CNPJ.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/sqlite/sqlite-original.svg',
+                )
+                _stack_card(
+                    'Pandas + Parquet',
+                    'Processamento dos dados da ANEEL e geração dos arquivos analíticos usados no mapa.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/pandas/pandas-original.svg',
+                )
+                _stack_card(
+                    'Leaflet.js',
+                    'Mapa interativo, camadas geográficas, heatmap por município e bairro, pins e popups.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/leaflet/leaflet-original.svg',
+                )
+                _stack_card(
+                    'Chart.js',
+                    'Gráficos do mapa: evolução temporal, fabricantes, classes, modalidades e PF/PJ.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/chartjs/chartjs-original.svg',
+                )
+                _stack_card(
+                    'Firebase',
+                    'Autenticação com Magic Link por e-mail e separação entre perfis B2C e B2B.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/firebase/firebase-plain.svg',
+                )
+                _stack_card(
+                    'HTML, CSS e JavaScript',
+                    'Assets públicos, mapa client-side, filtros, paginação e carregamento dos gráficos.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/javascript/javascript-original.svg',
+                )
+                _stack_card(
+                    'Git + GitHub',
+                    'Controle de versão, branches por melhoria e revisão via pull requests.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/git/git-original.svg',
+                )
+                _stack_card(
+                    'APIs e dados abertos',
+                    'ANEEL, IBGE, Correios, CNPJá, Nominatim, ViaCEP e BrasilAPI integrados ao fluxo.',
+                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/openapi/openapi-original.svg',
                 )
 
         ui.label('').classes('h-16')
