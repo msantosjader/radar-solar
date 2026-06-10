@@ -84,10 +84,10 @@ def render_apresentacao() -> None:
 
             with ui.column().classes('w-full max-w-5xl gap-6'):
                 _evidence(
-                    'Variáveis, tipos e operadores',
+                    'Variáveis, tipos e operadores aritméticos/relacionais',
                     'src/ui/pages/cliente/dashboard.py:111-114',
                     'O dashboard compara a geração atual com a geração do mês anterior. Esse trecho usa variáveis numéricas, '
-                    'operadores aritméticos e uma constante que representa a regra de negócio do alerta.',
+                    'operadores aritméticos e uma comparação relacional para aplicar a regra de negócio do alerta.',
                     """# Exemplo 1: cálculo de alerta no dashboard
 queda_percentual = ((anterior - atual) / anterior) * 100
 if queda_percentual >= LIMIAR_QUEDA_GERACAO_PERCENT:
@@ -96,35 +96,21 @@ if queda_percentual >= LIMIAR_QUEDA_GERACAO_PERCENT:
     )""",
                 )
                 _evidence(
-                    'Estrutura de decisão: if/else',
-                    'auth.py:56-63 / faturas.py:20-33',
-                    'As decisões aparecem em regras de autenticação e validação de formulários. O sistema bloqueia perfis '
-                    'conflitantes e também impede que valores inválidos sejam salvos como fatura.',
-                    """# Exemplo 1: bloqueio de perfil conflitante
-if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
-    perfil_existente = TIPO_TO_LABEL.get(usuario_existente.tipo_perfil, usuario_existente.tipo_perfil)
-    perfil_solicitado = TIPO_TO_LABEL.get(tipo_perfil, tipo_perfil)
-    raise PerfilConflitanteError(
-        f'Este e-mail ja esta cadastrado como {perfil_existente}. '
-        f'Para acessar como {perfil_solicitado}, use outro e-mail.'
-    )
-
-# Exemplo 2: campo obrigatório na fatura
-if not text:
-    if optional:
-        return None
-    raise ValueError(f'O campo "{field_name}" e obrigatorio.')""",
-                )
-                _evidence(
-                    'Operadores lógicos',
-                    'auth.py:56 / empresa/kanban.py:35-38',
-                    'O projeto usa operadores lógicos para combinar condições. Em Python puro usamos and; nas consultas '
-                    'Peewee, usamos & e | para representar AND e OR no SQL gerado pelo ORM.',
-                    """# Exemplo 1: operador lógico and em Python
+                    'Estruturas de decisão e operadores lógicos',
+                    'auth.py:56-63 / faturas.py:20-33 / empresa/kanban.py:35-38',
+                    'As decisões aparecem em autenticação, validação de formulários e consultas ao banco. Usamos if/else, '
+                    'and em Python puro e &/| em consultas Peewee para representar AND e OR no SQL.',
+                    """# Exemplo 1: if + and em regra de autenticação
 if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
     raise PerfilConflitanteError(...)
 
-# Exemplo 2: AND (&) e OR (|) em consulta Peewee
+# Exemplo 2: if aninhado em validação de formulário
+if not text:
+    if optional:
+        return None
+    raise ValueError(f'O campo "{field_name}" e obrigatorio.')
+
+# Exemplo 3: AND (&) e OR (|) em consulta Peewee
 Lead.select().where(
     (Lead.status.in_(STATUS_KANBAN))
     & ((Lead.empresa_responsavel.is_null(True)) | (Lead.empresa_responsavel == empresa_id))
