@@ -2,10 +2,48 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import time
 from datetime import datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
+
+
+# ── Helpers de log no terminal ──────────────────────────────────────────────
+
+
+def _ts() -> str:
+    return time.strftime('%H:%M:%S')
+
+
+def log_info(msg: str) -> None:
+    print(f'[{_ts()}]  INFO  {msg}')
+
+
+def log_ok(msg: str) -> None:
+    print(f'[{_ts()}]  OK    {msg}')
+
+
+def log_aviso(msg: str) -> None:
+    print(f'[{_ts()}]  AVISO {msg}')
+
+
+def log_erro(msg: str) -> None:
+    print(f'[{_ts()}]  ERRO  {msg}', file=sys.stderr)
+
+
+def log_dados(msg: str, linhas: int, fonte: str = '') -> None:
+    fonte_str = f' [{fonte}]' if fonte else ''
+    print(f'[{_ts()}]  DADOS {msg}: {linhas} linha(s){fonte_str}')
+
+
+def log_separador(titulo: str = '') -> None:
+    linha = '─' * 50
+    if titulo:
+        print(f'\n{linha}\n  {titulo}\n{linha}')
+    else:
+        print(f'\n{linha}')
 
 
 def _only_digits(value: Any) -> str:

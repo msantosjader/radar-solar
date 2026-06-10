@@ -19,6 +19,7 @@ from nicegui import app, ui
 
 from src.models import CnpjCache, InstalacaoSolar, Lead
 from src.normalize import normalizar_inversor, normalizar_modulo
+from src.utils import log_aviso, log_info, log_dados, log_ok
 
 RMR_MUNICIPIOS = {
     '2600054',  # Abreu e Lima
@@ -143,10 +144,12 @@ def _date_br(value: object) -> str:
 @lru_cache(maxsize=1)
 def carregar_dados_titular() -> dict[str, dict]:
     if not EMPREENDIMENTOS_CSV.exists():
+        log_aviso('Mapa: arquivo de empreendimentos CSV nao encontrado')
         return {}
 
     colunas = ['CodEmpreendimento', 'NumCPFCNPJ', 'NomTitularEmpreendimento', 'DscModalidadeHabilitado']
     df = pd.read_csv(EMPREENDIMENTOS_CSV, sep=';', encoding='latin1', usecols=colunas)
+    log_dados('Mapa: dados titular carregados do CSV', len(df), fonte=EMPREENDIMENTOS_CSV.name)
     return {
         _text(row.CodEmpreendimento): {
             'cpf_cnpj': _text(row.NumCPFCNPJ),
@@ -256,6 +259,7 @@ def carregar_bairros_por_cep() -> tuple[dict[str, dict[str, set[str]]], dict[str
 
 @lru_cache(maxsize=1)
 def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]], dict]:
+    log_info('Mapa: carregando instalacoes ANEEL do Parquet...')
     dados_titular = carregar_dados_titular()
     colunas = [
         'municipio',
@@ -279,6 +283,7 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
         'area_arranjo_m2',
     ]
     df = pd.read_parquet(INSTALACOES_PARQUET, columns=colunas)
+    log_dados('Mapa: instalacoes ANEEL carregadas do Parquet', len(df), fonte=INSTALACOES_PARQUET.name)
     df['potencia_kw'] = pd.to_numeric(df['potencia_kw'], errors='coerce').fillna(0)
     df['qtd_modulos'] = pd.to_numeric(df['qtd_modulos'], errors='coerce').fillna(0)
 
@@ -390,6 +395,7 @@ def carregar_instalacoes_aneel() -> tuple[dict[str, dict], dict[str, list[dict]]
 
 @lru_cache(maxsize=1)
 def carregar_geojson_rmr() -> dict:
+    log_info('Mapa: construindo GeoJSON da RMR (shapefiles + instalacoes)...')
     agregados_aneel, instalacoes_por_municipio, charts = carregar_instalacoes_aneel()
     bairros_por_cep_exato, bairros_por_prefixo = carregar_bairros_por_cep()
     municipios = []

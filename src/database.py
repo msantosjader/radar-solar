@@ -1,12 +1,11 @@
 from peewee import SqliteDatabase
 from pathlib import Path
 
-# 1. Descobre o caminho absoluto da pasta raiz do projeto
-# (__file__ é o database.py, o primeiro parent é a pasta 'src', o segundo é a raiz 'radar-solar')
-BASE_DIR = Path(__file__).resolve().parent.parent
+from src.utils import log_info, log_ok
 
-# 2. Aponta para o ficheiro da base de dados dentro da pasta data/
+BASE_DIR = Path(__file__).resolve().parent.parent
 CAMINHO_DB = BASE_DIR / 'data' / 'radarsolar.db'
 
-# 3. Cria a instância de ligação à base de dados SQLite
+log_info(f'Banco SQLite: {CAMINHO_DB}')
 db = SqliteDatabase(CAMINHO_DB, pragmas={'foreign_keys': 1})
+log_ok('Conexao SQLite estabelecida com foreign_keys=ON')

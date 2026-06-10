@@ -16,6 +16,7 @@ import pandas as pd
 
 from src.database import db
 from src.models import CnpjCache
+from src.utils import log_info, log_ok, log_aviso, log_erro, log_dados, log_separador
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 EMPREENDIMENTOS_CSV = BASE_DIR / 'data' / 'processed' / 'aneel' / 'empreendimento-geracao-distribuida-rmr.csv'
@@ -33,7 +34,7 @@ def only_digits(value: object) -> str:
 
 def carregar_cnpjs_do_csv() -> list[str]:
     if not EMPREENDIMENTOS_CSV.exists():
-        print(f'Arquivo nao encontrado: {EMPREENDIMENTOS_CSV}')
+        log_erro(f'Arquivo nao encontrado: {EMPREENDIMENTOS_CSV}')
         return []
 
     linhas = EMPREENDIMENTOS_CSV.read_text(encoding='latin1').splitlines()
@@ -44,7 +45,7 @@ def carregar_cnpjs_do_csv() -> list[str]:
     try:
         idx = header.index('NumCPFCNPJ')
     except ValueError:
-        print('Coluna NumCPFCNPJ nao encontrada no CSV.')
+        log_erro('Coluna NumCPFCNPJ nao encontrada no CSV.')
         return []
 
     cnpjs_unicos: set[str] = set()
@@ -67,16 +68,16 @@ def consultar_cnpja(cnpj: str) -> dict | None:
             return json.loads(response.read().decode('utf-8'))
     except HTTPError as exc:
         if exc.code == 404:
-            print(f'  CNPJ {cnpj} nao encontrado (404)')
+            log_aviso(f'  CNPJ {cnpj} nao encontrado (404)')
             return {'taxId': cnpj, 'company': {}}
         if exc.code == 429:
-            print(f'  Rate limited. Aguardando 60s...')
+            log_aviso(f'  Rate limited. Aguardando 60s...')
             time.sleep(60)
             return consultar_cnpja(cnpj)
-        print(f'  HTTP {exc.code} para {cnpj}')
+        log_erro(f'  HTTP {exc.code} para {cnpj}')
         return None
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-        print(f'  Erro na requisicao {cnpj}: {exc}')
+        log_erro(f'  Erro na requisicao {cnpj}: {exc}')
         return None
 
 
@@ -132,7 +133,7 @@ def geocodificar(endereco: str) -> tuple[float | None, float | None]:
         if resultados:
             return (float(resultados[0]['lat']), float(resultados[0]['lon']))
     except (URLError, TimeoutError, json.JSONDecodeError, KeyError) as exc:
-        print(f'    Erro geocodificacao: {exc}')
+        log_erro(f'    Erro geocodificacao: {exc}')
     return (None, None)
 
 
@@ -150,7 +151,7 @@ def carregar_cnpj_por_empreendimento() -> dict[str, str]:
 
 def atualizar_parquet() -> None:
     if not PARQUET_PATH.exists():
-        print('  Parquet nao encontrado, pulando.')
+        log_aviso('  Parquet nao encontrado, pulando.')
         return
 
     cnpj_por_emp = carregar_cnpj_por_empreendimento()
@@ -158,7 +159,7 @@ def atualizar_parquet() -> None:
         c.cnpj: c for c in CnpjCache.select()
     }
     if not cache_por_cnpj:
-        print('  Cache vazio, nada a atualizar.')
+        log_info('  Cache vazio, nada a atualizar.')
         return
 
     df = pd.read_parquet(PARQUET_PATH)
@@ -189,12 +190,12 @@ def atualizar_parquet() -> None:
                 df.at[idx, 'bairro_estimado'] = cache.bairro
                 atualizados_bairro += 1
 
-    print(f'  CEPs atualizados: {atualizados_cep}')
-    print(f'  Bairros atualizados: {atualizados_bairro}')
+    log_dados('CEPs atualizados', atualizados_cep)
+    log_dados('Bairros atualizados', atualizados_bairro)
 
     if atualizados_cep or atualizados_bairro:
         df.to_parquet(PARQUET_PATH, index=False)
-        print(f'  Parquet salvo.')
+        log_ok(f'  Parquet salvo.')
 
 
 def parse_args() -> argparse.Namespace:
@@ -213,7 +214,7 @@ def main() -> int:
     db.create_tables([CnpjCache])
 
     if args.parquet_only:
-        print('Atualizando parquet com dados do cache...')
+        log_info('Atualizando parquet com dados do cache...')
         atualizar_parquet()
         db.close()
         return 0
@@ -223,47 +224,47 @@ def main() -> int:
         ja_cacheados = {c.cnpj for c in CnpjCache.select(CnpjCache.cnpj)}
         cnpjs_pendentes = [c for c in cnpjs_csv if c not in ja_cacheados]
 
-        print(f'CNPJs no CSV: {len(cnpjs_csv)}')
-        print(f'Ja cacheados: {len(ja_cacheados)}')
-        print(f'Pendentes: {len(cnpjs_pendentes)}')
+        log_dados('CNPJs no CSV', len(cnpjs_csv))
+        log_dados('Ja cacheados', len(ja_cacheados))
+        log_dados('Pendentes', len(cnpjs_pendentes))
 
         if args.limit is not None:
             cnpjs_pendentes = cnpjs_pendentes[:max(args.limit, 0)]
-            print(f'Limite aplicado: {len(cnpjs_pendentes)}')
+            log_dados('Limite aplicado', len(cnpjs_pendentes))
 
         if args.dry_run:
             for cnpj in cnpjs_pendentes:
-                print(f'Pendente: {cnpj}')
-            print('Dry-run concluido sem consultas ou gravacoes.')
+                log_info(f'Pendente: {cnpj}')
+            log_info('Dry-run concluido sem consultas ou gravacoes.')
             return 0
 
         if not cnpjs_pendentes:
-            print('Nada a fazer.')
+            log_info('Nada a fazer.')
             if not args.no_parquet:
-                print('Atualizando parquet com dados do cache...')
+                log_info('Atualizando parquet com dados do cache...')
                 atualizar_parquet()
             return 0
 
         for i, cnpj in enumerate(cnpjs_pendentes, start=1):
-            print(f'[{i}/{len(cnpjs_pendentes)}] Consultando {cnpj}...')
+            log_info(f'[{i}/{len(cnpjs_pendentes)}] Consultando {cnpj}...')
             dados = consultar_cnpja(cnpj)
             if dados is None:
-                print(f'  Pulando {cnpj} apos erro.')
+                log_aviso(f'  Pulando {cnpj} apos erro.')
                 time.sleep(CNPJA_DELAY_SECONDS)
                 continue
 
             endereco = montar_endereco_completo(dados)
             lat = lng = None
             if endereco and not args.skip_geocode:
-                print(f'  Geocodificando: {endereco}')
+                log_info(f'  Geocodificando: {endereco}')
                 lat, lng = geocodificar(endereco)
                 if lat and lng:
-                    print(f'    -> {lat:.5f}, {lng:.5f}')
+                    log_ok(f'    -> {lat:.5f}, {lng:.5f}')
                 else:
-                    print('    -> sem coordenadas')
+                    log_aviso('    -> sem coordenadas')
                 time.sleep(GEOCODING_DELAY)
             elif endereco:
-                print('  Geocodificacao pulada (--skip-geocode).')
+                log_info('  Geocodificacao pulada (--skip-geocode).')
 
             with db.atomic():
                 CnpjCache.get_or_create(
@@ -280,10 +281,10 @@ def main() -> int:
                 time.sleep(CNPJA_DELAY_SECONDS)
 
         if not args.no_parquet:
-            print('Atualizando parquet com dados do cache...')
+            log_info('Atualizando parquet com dados do cache...')
             atualizar_parquet()
 
-        print('Concluido.')
+        log_separador('Concluido')
         return 0
     finally:
         if not db.is_closed():

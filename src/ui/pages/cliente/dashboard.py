@@ -6,7 +6,7 @@ from typing import Any
 
 from nicegui import ui
 from src.models import Fatura, InstalacaoSolar, Lead, Usuario
-from src.utils import _format_datetime_br, _normalizar_estado
+from src.utils import _format_datetime_br, _normalizar_estado, log_info, log_dados, log_ok
 
 
 LIMIAR_QUEDA_GERACAO_PERCENT = 20.0
@@ -28,11 +28,13 @@ def _obter_faturas_usuario(usuario_id: int) -> list[Fatura]:
         InstalacaoSolar.select(InstalacaoSolar.id)
         .where(InstalacaoSolar.usuario == usuario_id)
     )
-    return list(
+    faturas = list(
         Fatura.select()
         .where(Fatura.instalacao.in_(instalacoes_ids))
         .order_by(Fatura.criado_em.desc())
     )
+    log_dados(f'Dashboard B2C: faturas carregadas para usuario {usuario_id}', len(faturas))
+    return faturas
 
 
 def _obter_lead_aberto(usuario_id: int) -> Lead | None:
@@ -54,6 +56,7 @@ def _salvar_solicitacao_manutencao(
 ) -> Lead:
     lead_aberto = _obter_lead_aberto(usuario.id)
     if lead_aberto:
+        log_info(f'Dashboard B2C: lead #{lead_aberto.id} ja aberto, retornando existente')
         return lead_aberto
 
     nome = str(payload['nome']).strip()
@@ -80,7 +83,7 @@ def _salvar_solicitacao_manutencao(
     instalacao.save()
 
     descricao = str(payload.get('descricao') or '').strip()
-    return Lead.create(
+    lead = Lead.create(
         cliente=usuario,
         empresa_responsavel=None,
         nome_contato=nome,
@@ -89,6 +92,8 @@ def _salvar_solicitacao_manutencao(
         descricao_servico=descricao or 'Cliente solicitou contato para avaliacao/manutencao da instalacao solar.',
         status='Novo',
     )
+    log_ok(f'Dashboard B2C: lead de manutencao #{lead.id} criado para usuario {usuario.email}')
+    return lead
 
 
 def _cancelar_solicitacao(lead: Lead) -> None:

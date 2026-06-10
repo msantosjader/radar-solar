@@ -8,7 +8,7 @@ from urllib.request import urlopen
 from nicegui import app, ui
 
 from src.models import EmpresaPerfil, Usuario
-from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado, _only_digits
+from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado, _only_digits, log_info, log_ok
 
 
 def _normalizar_cnpj(value: Any) -> str:
@@ -237,6 +237,7 @@ def _render_empresa_save_button(
             "document.querySelectorAll('.rs-current-user-name').forEach(el => el.textContent = "
             f"{json.dumps(usuario.nome)})"
         )
+        log_ok(f'Perfil B2B: empresa {usuario.email} atualizado')
         ui.notify('Perfil da empresa atualizado com sucesso.', color='positive')
 
     with ui.row().classes('w-full justify-end'):

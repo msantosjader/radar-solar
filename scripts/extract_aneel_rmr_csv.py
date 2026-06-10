@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.utils import log_info, log_dados, log_ok
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ANEEL_RAW_DIR = BASE_DIR / 'data' / 'raw' / 'aneel'
@@ -55,7 +56,7 @@ def ensure_inputs_exist() -> None:
 
 def extract_empreendimentos_rmr(chunksize: int, force: bool) -> set[str]:
     if RMR_EMPREENDIMENTOS_CSV.exists() and not force:
-        print(f'Usando arquivo existente: {RMR_EMPREENDIMENTOS_CSV.relative_to(BASE_DIR)}')
+        log_info(f'Usando arquivo existente: {RMR_EMPREENDIMENTOS_CSV.relative_to(BASE_DIR)}')
         codigos = pd.read_csv(
             RMR_EMPREENDIMENTOS_CSV,
             sep=';',
@@ -78,7 +79,7 @@ def extract_empreendimentos_rmr(chunksize: int, force: bool) -> set[str]:
                 municipio_norm = chunk['NomMunicipio'].map(normalize_text)
                 filtered = chunk[(chunk['SigUF'] == 'PE') & (municipio_norm.isin(RMR_MUNICIPIOS))].copy()
                 if filtered.empty:
-                    print(f'empreendimentos: chunk {index}; nenhum registro RMR')
+                    log_info(f'empreendimentos: chunk {index}; nenhum registro RMR')
                     continue
 
                 filtered.to_csv(
@@ -92,15 +93,15 @@ def extract_empreendimentos_rmr(chunksize: int, force: bool) -> set[str]:
                 written_header = True
                 total += len(filtered)
                 codigos.update(filtered['CodEmpreendimento'].dropna().astype(str))
-                print(f'empreendimentos: chunk {index}; acumulado RMR={total}')
+                log_dados(f'empreendimentos: chunk {index}', total, 'acumulado RMR')
 
-    print(f'Empreendimentos RMR gerado: {RMR_EMPREENDIMENTOS_CSV.relative_to(BASE_DIR)} ({total} linhas)')
+    log_ok(f'Empreendimentos RMR gerado: {RMR_EMPREENDIMENTOS_CSV.relative_to(BASE_DIR)} ({total} linhas)')
     return codigos
 
 
 def extract_info_tecnica_rmr(codigos: set[str], chunksize: int, force: bool) -> None:
     if RMR_INFO_TECNICA_CSV.exists() and not force:
-        print(f'Usando arquivo existente: {RMR_INFO_TECNICA_CSV.relative_to(BASE_DIR)}')
+        log_info(f'Usando arquivo existente: {RMR_INFO_TECNICA_CSV.relative_to(BASE_DIR)}')
         return
 
     RMR_INFO_TECNICA_CSV.unlink(missing_ok=True)
@@ -111,7 +112,7 @@ def extract_info_tecnica_rmr(codigos: set[str], chunksize: int, force: bool) -> 
     for index, chunk in enumerate(reader, start=1):
         filtered = chunk[chunk['CodGeracaoDistribuida'].isin(codigos)].copy()
         if filtered.empty:
-            print(f'info_tecnica: chunk {index}; nenhum registro RMR')
+            log_info(f'info_tecnica: chunk {index}; nenhum registro RMR')
             continue
 
         filtered.to_csv(
@@ -124,9 +125,9 @@ def extract_info_tecnica_rmr(codigos: set[str], chunksize: int, force: bool) -> 
         )
         written_header = True
         total += len(filtered)
-        print(f'info_tecnica: chunk {index}; acumulado RMR={total}')
+        log_dados(f'info_tecnica: chunk {index}', total, 'acumulado RMR')
 
-    print(f'Info tecnica RMR gerada: {RMR_INFO_TECNICA_CSV.relative_to(BASE_DIR)} ({total} linhas)')
+    log_ok(f'Info tecnica RMR gerada: {RMR_INFO_TECNICA_CSV.relative_to(BASE_DIR)} ({total} linhas)')
 
 
 def parse_args() -> argparse.Namespace:

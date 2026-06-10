@@ -59,6 +59,7 @@ async def _send_magic_link(email: Any, active_profile: dict[str, str]) -> None:
         ui.notify(str(exc), type='warning')
         return
 
+    log_info(f'Login: enviando magic link para {current_email} (perfil={active_profile["value"]})')
     result = await ui.run_javascript(
         (
             '(async () => {'

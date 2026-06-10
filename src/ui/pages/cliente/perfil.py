@@ -5,7 +5,7 @@ import json
 from nicegui import app, ui
 
 from src.models import InstalacaoSolar, Usuario
-from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado
+from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_estado, log_info, log_ok
 
 
 def _obter_ou_criar_instalacao(usuario_id: int) -> InstalacaoSolar:
@@ -160,6 +160,7 @@ def render_perfil(auth: dict) -> None:
                 "document.querySelectorAll('.rs-current-user-name').forEach(el => el.textContent = "
                 f"{json.dumps(usuario.nome)})"
             )
+            log_ok(f'Perfil B2C: usuario {usuario.email} atualizado')
             ui.notify('Perfil atualizado com sucesso.', color='positive')
 
         with ui.row().classes('w-full justify-end'):

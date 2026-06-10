@@ -5,6 +5,8 @@ import re
 import unicodedata
 from functools import lru_cache
 
+from src.utils import log_info
+
 
 def _strip_accents(value: str) -> str:
     nfkd = unicodedata.normalize('NFKD', value)
@@ -557,6 +559,12 @@ CANONICAIS_MODULO = set(_CANONICAIS_MODULO_BASE) | {
 CANONICAIS_INVERSOR = set(_CANONICAIS_INVERSOR_BASE) | {
     v for k, v in _SINONIMOS_INVERSOR.items() if v
 }
+
+log_info(
+    f'Normalizacao carregada: '
+    f'{len(_SINONIMOS_MODULO)} sinonimos de modulos -> {len(CANONICAIS_MODULO)} canonicos, '
+    f'{len(_SINONIMOS_INVERSOR)} sinonimos de inversores -> {len(CANONICAIS_INVERSOR)} canonicos'
+)
 
 
 @lru_cache(maxsize=4096)
