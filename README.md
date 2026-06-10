@@ -68,10 +68,10 @@ radar-solar/
 │   ├── main.py         # Rotas e inicialização
 │   ├── models.py       # Modelos do banco
 │   ├── database.py     # Conexão SQLite
-│   ├── utils.py        # Utilitários
+│   ├── utils.py        # Utilitários + helpers de log no terminal
 │   ├── normalize.py    # Normalização de fabricantes
 │   └── ui/             # Interface
-│       ├── assets/     # CSS, JS, imagens
+│       ├── assets/     # CSS, JS (firebase-auth.js), imagens
 │       └── pages/      # Páginas por contexto
 ├── scripts/            # Pipeline de dados
 ├── docs/               # Documentação
@@ -98,23 +98,65 @@ radar-solar/
 
 ## Como executar
 
+### 1. Instalar dependências
+
 ```bash
-# Instalar dependências
+# Opção A — uv (recomendado)
 uv sync
 
-# Inicializar banco
-uv run python scripts/init_db.py
+# Opção B — pip
+pip install -e .
+```
 
-# Iniciar servidor
-uv run python main.py
+As dependências estão listadas no `pyproject.toml` (e espelhadas no `requirements.txt`).
+
+> **Firebase:** a autenticação é feita no navegador via JavaScript (`/assets/firebase-auth.js`).
+> Nenhum pacote Python do Firebase é necessário — o servidor apenas armazena o `firebase_uid`
+> recebido do cliente. A chave da API Firebase está em `src/ui/pages/public/__init__.py`.
+
+### 2. Inicializar banco
+
+```bash
+uv run python scripts/init_db.py    # com uv
+python -m scripts.init_db           # com pip
+```
+
+### 3. Iniciar servidor
+
+```bash
+uv run python main.py               # com uv
+python -m main                      # com pip
 # Acessar http://localhost:8080
+```
 
-# Pipeline de dados (opcional, para atualizar mapa)
-uv run python scripts/update_all.py
+### 4. Pipeline de dados (opcional)
 
-# Apenas validação
+O pipeline baixa, processa e enriquece dados públicos da ANEEL e da Receita Federal
+para alimentar o mapa de calor e os pins de PJ. A ordem de execução é:
+
+| Etapa | Script | Gera |
+|-------|--------|------|
+| 1. Download ANEEL | `update_aneel_data.py` | ZIPs brutos em `data/raw/aneel/` + parquets processados em `data/processed/aneel/` |
+| 2. Extração RMR | `extract_aneel_rmr_csv.py` | `data/processed/aneel/empreendimento-geracao-distribuida-rmr.csv` (apenas RMR) |
+| 3. Enriquecimento CNPJ | `update_cnpj_enderecos.py` | Cache em SQLite (`CnpjCache`) + geocoding → pins PJ no mapa |
+
+```bash
+# Pipeline completo (1 → 2 → 3)
+uv run python scripts/update_all.py          # com uv
+python -m scripts.update_all                 # com pip
+
+# Apenas validação dos arquivos auxiliares (IBGE, Correios)
 uv run python scripts/update_all.py --validate-only
 ```
+
+> **Ordem recomendada para experiência completa:**
+> 1. `uv sync` — instalar dependências
+> 2. `python scripts/init_db.py` — criar banco SQLite
+> 3. `python scripts/update_all.py` — baixar/processar dados ANEEL + CNPJ (pode levar alguns minutos)
+> 4. `python main.py` — iniciar servidor e acessar `http://localhost:8080`
+
+Para ver a explicação de cada etapa no terminal, execute com `--validate-only` primeiro
+ou acompanhe os logs com timestamp (`[HH:MM:SS]`) que o pipeline exibe durante a execução.
 
 ---
 
