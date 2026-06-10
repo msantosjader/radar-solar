@@ -370,7 +370,7 @@ if not args.skip_cnpj:
                 _stack_card(
                     'Leaflet.js',
                     'Mapa interativo, camadas geográficas, heatmap por município e bairro, pins e popups.',
-                    'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/leaflet/leaflet-original.svg',
+                    'https://leafletjs.com/docs/images/logo.png',
                 )
                 _stack_card(
                     'Chart.js',
@@ -393,8 +393,8 @@ if not args.skip_cnpj:
                     'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/git/git-original.svg',
                 )
                 _stack_card(
-                    'APIs e dados abertos',
-                    'ANEEL, IBGE, Correios, CNPJá, Nominatim, ViaCEP e BrasilAPI integrados ao fluxo.',
+                    'Dados abertos e APIs',
+                    'ANEEL, IBGE e Correios alimentam os dados. CNPJá e Nominatim enriquecem o mapa; ViaCEP e BrasilAPI apoiam cadastros.',
                     'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/openapi/openapi-original.svg',
                 )
 
