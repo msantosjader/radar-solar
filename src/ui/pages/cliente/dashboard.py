@@ -214,7 +214,7 @@ def render_dashboard(auth: dict, refresh_callback: Callable[[], None] | None = N
         if houve_alerta:
             classes_alerta += 'bg-red-50 border-red-300'
             cor_texto = 'text-red-700'
-            titulo_alerta = 'Alerta visual de anomalia'
+            titulo_alerta = 'Avisos'
         else:
             classes_alerta += 'bg-emerald-50 border-emerald-300'
             cor_texto = 'text-emerald-700'
