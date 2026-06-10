@@ -85,22 +85,15 @@ def render_apresentacao() -> None:
             with ui.column().classes('w-full max-w-5xl gap-6'):
                 _evidence(
                     'Variáveis, tipos e operadores',
-                    'dashboard.py:111-114 / faturas.py:241-252',
-                    'O projeto usa variáveis numéricas tanto para calcular alertas quanto para montar o payload das faturas. '
-                    'Os operadores aparecem no cálculo percentual e na conversão dos valores digitados pelo usuário.',
+                    'src/ui/pages/cliente/dashboard.py:111-114',
+                    'O dashboard compara a geração atual com a geração do mês anterior. Esse trecho usa variáveis numéricas, '
+                    'operadores aritméticos e uma constante que representa a regra de negócio do alerta.',
                     """# Exemplo 1: cálculo de alerta no dashboard
 queda_percentual = ((anterior - atual) / anterior) * 100
 if queda_percentual >= LIMIAR_QUEDA_GERACAO_PERCENT:
     alertas.append(
         f'Queda de geracao acima do limite: {_format_percent(queda_percentual)}'
-    )
-
-# Exemplo 2: payload numérico da fatura
-payload = {
-    'consumo_kwh': _parse_float(consumo_kwh.value, 'Consumo (kWh)'),
-    'valor_fatura_rs': _parse_float(valor_fatura_rs.value, 'Valor da fatura (R$)'),
-    'geracao_app_kwh': _parse_float(geracao_app_kwh.value, 'Geracao no app (kWh)', optional=True),
-}""",
+    )""",
                 )
                 _evidence(
                     'Estrutura de decisão: if/else',
@@ -121,6 +114,21 @@ if not text:
     if optional:
         return None
     raise ValueError(f'O campo "{field_name}" e obrigatorio.')""",
+                )
+                _evidence(
+                    'Operadores lógicos',
+                    'auth.py:56 / empresa/kanban.py:35-38',
+                    'O projeto usa operadores lógicos para combinar condições. Em Python puro usamos and; nas consultas '
+                    'Peewee, usamos & e | para representar AND e OR no SQL gerado pelo ORM.',
+                    """# Exemplo 1: operador lógico and em Python
+if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
+    raise PerfilConflitanteError(...)
+
+# Exemplo 2: AND (&) e OR (|) em consulta Peewee
+Lead.select().where(
+    (Lead.status.in_(STATUS_KANBAN))
+    & ((Lead.empresa_responsavel.is_null(True)) | (Lead.empresa_responsavel == empresa_id))
+)""",
                 )
                 _evidence(
                     'Estrutura de repetição: for',
@@ -197,6 +205,20 @@ def geocodificar(endereco: str) -> tuple[float | None, float | None]:
     if resultados:
         return (float(resultados[0]['lat']), float(resultados[0]['lon']))
     return (None, None)""",
+                )
+                _evidence(
+                    'Leitura de dados e arquivos',
+                    'mapa.py:281, 398 / update_cnpj_enderecos.py:39',
+                    'Além de entrada por formulário, o projeto lê arquivos reais: Parquet para instalações, shapefiles do '
+                    'IBGE para geometria e CSV/texto para dados usados no pipeline.',
+                    """# Exemplo 1: leitura analítica em Parquet
+df = pd.read_parquet(INSTALACOES_PARQUET, columns=colunas)
+
+# Exemplo 2: leitura de shapefile do IBGE
+municipio_reader = shapefile.Reader(str(MUNICIPIOS_SHP), encoding='cp1252')
+
+# Exemplo 3: leitura de CSV como texto no pipeline CNPJ
+linhas = EMPREENDIMENTOS_CSV.read_text(encoding='latin1').splitlines()""",
                 )
 
         with ui.column().classes('w-full items-center gap-10 py-24 px-6 bg-slate-50'):
