@@ -6,6 +6,7 @@ from nicegui import app, ui
 from src.models import criar_tabelas
 from src.ui.layout import render_private_shell
 from src.ui.pages.cliente.spa import render_cliente_spa
+from src.ui.pages.demo.apresentacao import render_apresentacao
 from src.ui.pages.demo.mapa import render_demo_mapa
 from src.ui.pages.empresa.kanban import render_kanban
 from src.ui.pages.empresa.mapa import render_mapa
@@ -67,6 +68,11 @@ def auth_confirm() -> None:
 def demo_mapa() -> None:
     apply_theme()
     render_demo_mapa()
+
+@ui.page('/demo/apresentacao')
+def demo_apresentacao() -> None:
+    apply_theme()
+    render_apresentacao()
 
 
 @ui.page('/cliente/dashboard')
