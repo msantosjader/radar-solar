@@ -21,7 +21,7 @@ def _nav_bar() -> None:
 def _section_header(title: str, description: str) -> None:
     with ui.column().classes('w-full max-w-5xl gap-4 rs-animate-up'):
         ui.label(title).classes('text-4xl font-bold text-slate-900 leading-tight max-[700px]:text-3xl')
-        ui.label(description).classes('text-lg text-slate-600 leading-relaxed max-w-3xl')
+        ui.label(description).classes('text-xl text-slate-600 leading-8 max-w-5xl')
 
 
 def _code_quote(code: str) -> None:
@@ -65,8 +65,8 @@ def render_apresentacao() -> None:
             _anchor('estruturas')
             _section_header(
                 'Estruturas básicas no Radar Solar',
-                'O código utiliza variáveis, operadores, condicionais, repetições e estruturas de dados para transformar '
-                'informações de faturas, leads e instalações solares em funcionalidades reais.',
+                'Os fundamentos aparecem no fluxo principal da aplicação: validar entradas, calcular alertas, percorrer '
+                'instalações, montar coleções para o mapa e controlar decisões importantes do sistema.',
             )
 
             with ui.column().classes('w-full max-w-5xl gap-6'):
@@ -147,8 +147,8 @@ pins.append({
             _anchor('modularizacao')
             _section_header(
                 'Funções, módulos e boas práticas',
-                'A parte mais importante do projeto foi decompor problemas grandes em funções menores e módulos com '
-                'responsabilidades claras: autenticação, normalização, utilitários, mapa, dashboard e pipeline.',
+                'O projeto separa responsabilidades em módulos pequenos. Autenticação, normalização, utilitários, mapa, '
+                'dashboard e pipeline ficam em lugares diferentes, o que torna o código mais fácil de explicar e manter.',
             )
 
             with ui.column().classes('w-full max-w-5xl gap-6'):
@@ -200,8 +200,8 @@ except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             _anchor('crud')
             _section_header(
                 'CRUD de faturas',
-                'O cliente pode cadastrar, consultar, editar e excluir faturas de energia. Esse fluxo mostra a aplicação '
-                'prática de validação de entrada, persistência no SQLite e atualização da interface.',
+                'A tela de faturas mostra o ciclo completo de dados do usuário: cadastrar, consultar, editar e excluir. '
+                'Cada ação valida entradas, persiste no SQLite e atualiza a interface com feedback visual.',
             )
 
             with ui.column().classes('w-full max-w-5xl gap-6'):
@@ -265,8 +265,8 @@ ui.notify('Fatura excluida com sucesso.', color='positive')""",
             _anchor('algoritmos')
             _section_header(
                 'Algoritmos aplicados',
-                'Além dos fundamentos, o projeto tem algoritmos diretamente ligados ao problema real: localizar empresas '
-                'no mapa, padronizar nomes inconsistentes da ANEEL e automatizar a atualização de dados.',
+                'A camada de dados resolve problemas práticos do domínio: localizar empresas no mapa, padronizar nomes '
+                'inconsistentes da ANEEL e atualizar a base sem depender de trabalho manual.',
             )
 
             with ui.column().classes('w-full max-w-5xl gap-6'):
@@ -310,6 +310,24 @@ def normalizar_modulo(value: str | None) -> str:
 1. update_aneel_data.py        # baixa e processa dados ANEEL
 2. extract_aneel_rmr_csv.py    # gera CSVs filtrados da RMR
 3. update_cnpj_enderecos.py    # consulta CNPJa, geocodifica e atualiza cache""",
+                )
+                _evidence(
+                    'Execução sequencial com parada em erro',
+                    'scripts/update_all.py:93-109',
+                    'O orquestrador executa uma etapa por vez. Se uma etapa falha, ele para imediatamente para evitar '
+                    'gerar arquivos inconsistentes ou seguir com dados incompletos.',
+                    """code = _run('update_aneel_data.py', '1/3: Atualizacao ANEEL')
+if code != 0:
+    return code
+
+code = _run('extract_aneel_rmr_csv.py', '2/3: Extracao CSVs RMR')
+if code != 0:
+    return code
+
+if not args.skip_cnpj:
+    code = _run('update_cnpj_enderecos.py', '3/3: Enriquecimento CNPJ')
+    if code != 0:
+        return code""",
                 )
 
         ui.label('').classes('h-16')
