@@ -85,54 +85,84 @@ def render_apresentacao() -> None:
             with ui.column().classes('w-full max-w-5xl gap-6'):
                 _evidence(
                     'Variáveis, tipos e operadores',
-                    'src/ui/pages/cliente/dashboard.py:111-114',
-                    'O dashboard compara a geração atual com a geração do mês anterior. Esse trecho usa variáveis '
-                    'numéricas, operadores aritméticos e uma constante que representa a regra de negócio do alerta.',
-                    """queda_percentual = ((anterior - atual) / anterior) * 100
+                    'dashboard.py:111-114 / faturas.py:241-252',
+                    'O projeto usa variáveis numéricas tanto para calcular alertas quanto para montar o payload das faturas. '
+                    'Os operadores aparecem no cálculo percentual e na conversão dos valores digitados pelo usuário.',
+                    """# Exemplo 1: cálculo de alerta no dashboard
+queda_percentual = ((anterior - atual) / anterior) * 100
 if queda_percentual >= LIMIAR_QUEDA_GERACAO_PERCENT:
     alertas.append(
         f'Queda de geracao acima do limite: {_format_percent(queda_percentual)}'
-    )""",
+    )
+
+# Exemplo 2: payload numérico da fatura
+payload = {
+    'consumo_kwh': _parse_float(consumo_kwh.value, 'Consumo (kWh)'),
+    'valor_fatura_rs': _parse_float(valor_fatura_rs.value, 'Valor da fatura (R$)'),
+    'geracao_app_kwh': _parse_float(geracao_app_kwh.value, 'Geracao no app (kWh)', optional=True),
+}""",
                 )
                 _evidence(
                     'Estrutura de decisão: if/else',
-                    'src/auth.py:56-63',
-                    'A autenticação bloqueia um e-mail que tente entrar com um perfil diferente do cadastrado. É um '
-                    'exemplo direto de decisão condicional protegendo uma regra importante do sistema.',
-                    """if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
+                    'auth.py:56-63 / faturas.py:20-33',
+                    'As decisões aparecem em regras de autenticação e validação de formulários. O sistema bloqueia perfis '
+                    'conflitantes e também impede que valores inválidos sejam salvos como fatura.',
+                    """# Exemplo 1: bloqueio de perfil conflitante
+if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
     perfil_existente = TIPO_TO_LABEL.get(usuario_existente.tipo_perfil, usuario_existente.tipo_perfil)
     perfil_solicitado = TIPO_TO_LABEL.get(tipo_perfil, tipo_perfil)
     raise PerfilConflitanteError(
         f'Este e-mail ja esta cadastrado como {perfil_existente}. '
         f'Para acessar como {perfil_solicitado}, use outro e-mail.'
-    )""",
+    )
+
+# Exemplo 2: campo obrigatório na fatura
+if not text:
+    if optional:
+        return None
+    raise ValueError(f'O campo "{field_name}" e obrigatorio.')""",
                 )
                 _evidence(
                     'Estrutura de repetição: for',
-                    'src/ui/pages/demo/mapa.py:713-716',
-                    'O mapa percorre instalações de empresas, limpa o CNPJ e só cria pin quando o valor tem 14 dígitos. '
-                    'O registro não é apagado; ele apenas não entra nessa camada visual do mapa.',
-                    """for inst in pjs:
+                    'mapa.py:713-716 / update_cnpj_enderecos.py:51-57',
+                    'O for aparece tanto na montagem visual do mapa quanto no processamento de arquivos. Em ambos os casos, '
+                    'o loop percorre registros e decide quais entram no resultado final.',
+                    """# Exemplo 1: percorrer PJs do mapa
+for inst in pjs:
     cnpj = ''.join(ch for ch in inst['cpf_cnpj'] if ch.isdigit())
     if len(cnpj) != 14:
-        continue""",
+        continue
+
+# Exemplo 2: percorrer linhas do CSV
+for linha in linhas[1:]:
+    partes = linha.split(';')
+    if idx >= len(partes):
+        continue
+    cnpj_raw = only_digits(partes[idx])""",
                 )
                 _evidence(
                     'Repetição com retry',
-                    'scripts/update_cnpj_enderecos.py:72-75',
-                    'Quando a API CNPJá responde com rate limit, o script aguarda e tenta novamente. É uma repetição '
-                    'controlada por recursão, usada para respeitar o limite da API.',
-                    """if exc.code == 429:
+                    'update_cnpj_enderecos.py:72-75 / update_all.py:93-109',
+                    'Além do for, há repetição controlada por fluxo: uma chamada pode ser repetida após rate limit, e o '
+                    'pipeline executa etapas em sequência validando o resultado de cada uma.',
+                    """# Exemplo 1: retry em rate limit
+if exc.code == 429:
     print(f'  Rate limited. Aguardando 60s...')
     time.sleep(60)
-    return consultar_cnpja(cnpj)""",
+    return consultar_cnpja(cnpj)
+
+# Exemplo 2: sequência do pipeline
+code = _run('update_aneel_data.py', '1/3: Atualizacao ANEEL')
+if code != 0:
+    return code""",
                 )
                 _evidence(
                     'Listas e dicionários',
-                    'src/ui/pages/demo/mapa.py:708-711, 739-758',
-                    'Os pins exibidos no mapa são acumulados em uma lista. O cache de CNPJs é transformado em dicionário '
-                    'para permitir consulta rápida pela chave do CNPJ.',
-                    """pins: list[dict] = []
+                    'mapa.py:708-711 / empresa/kanban.py:31-43',
+                    'Listas guardam coleções ordenadas de itens; dicionários agrupam informações por chave. O mapa usa isso '
+                    'para pins e cache, enquanto o kanban usa para separar leads por status.',
+                    """# Exemplo 1: lista de pins e cache por CNPJ
+pins: list[dict] = []
 cnpj_cache: dict[str, CnpjCache] = {
     c.cnpj: c for c in CnpjCache.select()
 }
@@ -143,17 +173,29 @@ pins.append({
     'cnpj': cnpj,
     'lat': float(lat),
     'lng': float(lng),
-})""",
+})
+
+# Exemplo 2: leads agrupados por status
+leads_por_status = {status: [] for status in STATUS_KANBAN}
+for lead in leads:
+    leads_por_status.setdefault(lead.status, []).append(lead)""",
                 )
                 _evidence(
                     'Tuplas para coordenadas',
-                    'src/ui/pages/demo/mapa.py:763-766',
-                    'A função retorna latitude e longitude juntas. A anotação de tipo deixa claro que cada valor pode ser '
-                    'numérico ou None, caso o algoritmo não encontre uma coordenada confiável.',
-                    """def _estimar_coordenada_por_cep(
+                    'mapa.py:763-766 / update_cnpj_enderecos.py:125-136',
+                    'Coordenadas são retornadas em pares. O tipo da função deixa claro que o resultado tem dois valores e '
+                    'que cada um pode ser nulo quando a geocodificação falha.',
+                    """# Exemplo 1: fallback por CEP no mapa
+def _estimar_coordenada_por_cep(
     municipio_codigo: str, cep_digits: str, prefixo: str,
     bairros_por_cep_exato: dict, bairros_por_prefixo: dict, data: dict,
-) -> tuple[float | None, float | None]:""",
+) -> tuple[float | None, float | None]:
+
+# Exemplo 2: geocodificação por endereço
+def geocodificar(endereco: str) -> tuple[float | None, float | None]:
+    if resultados:
+        return (float(resultados[0]['lat']), float(resultados[0]['lon']))
+    return (None, None)""",
                 )
 
         with ui.column().classes('w-full items-center gap-10 py-24 px-6 bg-slate-50'):
