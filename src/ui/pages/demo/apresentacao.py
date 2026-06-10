@@ -141,11 +141,12 @@ for linha in linhas[1:]:
     cnpj_raw = only_digits(partes[idx])""",
                 )
                 _evidence(
-                    'Repetição com retry',
+                    'Repetição controlada: retry sem while',
                     'update_cnpj_enderecos.py:72-75 / update_all.py:93-109',
-                    'Além do for, há repetição controlada por fluxo: uma chamada pode ser repetida após rate limit, e o '
-                    'pipeline executa etapas em sequência validando o resultado de cada uma.',
-                    """# Exemplo 1: retry em rate limit
+                    'O código Python não usa while diretamente. Para a API CNPJá, quando o servidor responde com HTTP 429 '
+                    '(rate limit), o script espera 60 segundos e chama a mesma função de novo. É uma repetição por recursão, '
+                    'controlada por uma condição de erro. No pipeline, cada etapa também só avança se a anterior terminar sem erro.',
+                    """# Exemplo 1: retry da API CNPJá após rate limit
 if exc.code == 429:
     print(f'  Rate limited. Aguardando 60s...')
     time.sleep(60)
