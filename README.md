@@ -113,6 +113,11 @@ As dependências estão listadas no `pyproject.toml` (e espelhadas no `requireme
 > **Firebase:** a autenticação é feita no navegador via JavaScript (`/assets/firebase-auth.js`).
 > Nenhum pacote Python do Firebase é necessário — o servidor apenas armazena o `firebase_uid`
 > recebido do cliente. A chave da API Firebase está em `src/ui/pages/public/__init__.py`.
+>
+> **Privacidade:** o banco de dados (SQLite) fica na sua máquina, mas o e-mail informado
+> no login é enviado ao Google Firebase para enviar o magic link. Se preferir não usar
+> seu e-mail pessoal, utilize um e-mail temporário em [temp-mail.org](https://temp-mail.org/pt/)
+> para testar a plataforma.
 
 ### 2. Inicializar banco
 
