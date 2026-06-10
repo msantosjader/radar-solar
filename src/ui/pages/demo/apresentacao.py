@@ -123,6 +123,21 @@ if not text:
     raise ValueError(f'O campo "{field_name}" e obrigatorio.')""",
                 )
                 _evidence(
+                    'Operadores lógicos: and, & e |',
+                    'auth.py:56 / empresa/kanban.py:35-38',
+                    'O projeto usa operadores lógicos para combinar condições. Em Python puro usamos and; nas consultas '
+                    'Peewee, usamos & e | para representar AND e OR no SQL gerado pelo ORM.',
+                    """# Exemplo 1: operador lógico and em Python
+if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
+    raise PerfilConflitanteError(...)
+
+# Exemplo 2: AND (&) e OR (|) em consulta Peewee
+Lead.select().where(
+    (Lead.status.in_(STATUS_KANBAN))
+    & ((Lead.empresa_responsavel.is_null(True)) | (Lead.empresa_responsavel == empresa_id))
+)""",
+                )
+                _evidence(
                     'Estrutura de repetição: for',
                     'mapa.py:713-716 / update_cnpj_enderecos.py:51-57',
                     'O for aparece tanto na montagem visual do mapa quanto no processamento de arquivos. Em ambos os casos, '
@@ -197,6 +212,20 @@ def geocodificar(endereco: str) -> tuple[float | None, float | None]:
     if resultados:
         return (float(resultados[0]['lat']), float(resultados[0]['lon']))
     return (None, None)""",
+                )
+                _evidence(
+                    'Leitura de dados e arquivos',
+                    'mapa.py:281, 398 / update_cnpj_enderecos.py:39',
+                    'Além de entrada por formulário, o projeto lê arquivos reais: Parquet para instalações, shapefiles do '
+                    'IBGE para geometria e CSV/texto para dados usados no pipeline.',
+                    """# Exemplo 1: leitura analítica em Parquet
+df = pd.read_parquet(INSTALACOES_PARQUET, columns=colunas)
+
+# Exemplo 2: leitura de shapefile do IBGE
+municipio_reader = shapefile.Reader(str(MUNICIPIOS_SHP), encoding='cp1252')
+
+# Exemplo 3: leitura de CSV como texto no pipeline CNPJ
+linhas = EMPREENDIMENTOS_CSV.read_text(encoding='latin1').splitlines()""",
                 )
 
         with ui.column().classes('w-full items-center gap-10 py-24 px-6 bg-slate-50'):

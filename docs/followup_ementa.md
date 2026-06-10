@@ -121,6 +121,21 @@ else:
     status.append('Geracao dentro da faixa esperada...')
 ```
 
+**Operadores lógicos (`and`, `&`, `|`):**
+- `src/auth.py:56-63` — combinação de condições em Python puro
+```python
+if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
+    raise PerfilConflitanteError(...)
+```
+
+- `src/ui/pages/empresa/kanban.py:35-38` — AND/OR em consulta Peewee
+```python
+Lead.select().where(
+    (Lead.status.in_(STATUS_KANBAN))
+    & ((Lead.empresa_responsavel.is_null(True)) | (Lead.empresa_responsavel == empresa_id))
+)
+```
+
 **Concatenação de strings:**
 - `src/ui/pages/demo/mapa.py:729`
 ```python
@@ -404,6 +419,22 @@ from src.utils import _buscar_endereco_por_cep, _normalizar_cep, _normalizar_est
 5. Agrupamento com `groupby`
 6. Normalização com dicionários
 7. Escrita em parquet
+
+**Leitura de dados e arquivos no projeto:**
+- `src/ui/pages/demo/mapa.py:281` — leitura de Parquet com instalações ANEEL
+```python
+df = pd.read_parquet(INSTALACOES_PARQUET, columns=colunas)
+```
+
+- `src/ui/pages/demo/mapa.py:398` — leitura de shapefile do IBGE
+```python
+municipio_reader = shapefile.Reader(str(MUNICIPIOS_SHP), encoding='cp1252')
+```
+
+- `scripts/update_cnpj_enderecos.py:39` — leitura de CSV como texto
+```python
+linhas = EMPREENDIMENTOS_CSV.read_text(encoding='latin1').splitlines()
+```
 
 ---
 
