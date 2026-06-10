@@ -14,15 +14,28 @@ from src.ui.pages.empresa.perfil import render_perfil_empresa
 from src.ui.pages.public.auth_confirm import render_auth_confirm
 from src.ui.pages.public.homepage import render_homepage
 from src.ui.pages.public.login import render_login
+from src.utils import log_info, log_ok, log_erro, log_separador
 
-# --- CONFIGURAÇÃO DE DIRETÓRIOS ESTÁTICOS ---
+# ── INICIALIZAÇÃO ───────────────────────────────────────────────────────────
+
 CURRENT_DIR = Path(__file__).parent
 ASSETS_DIR = CURRENT_DIR / 'ui' / 'assets'
-criar_tabelas()
 
-# Adiciona a rota estática usando o caminho absoluto convertido em string
+log_separador('Radar Solar - Inicializacao')
+
+log_info('Criando/verificando tabelas do banco SQLite...')
+try:
+    criar_tabelas()
+    log_ok('Tabelas verificadas/criadas com sucesso')
+except Exception as exc:
+    log_erro(f'Falha ao criar tabelas: {exc}')
+
+log_info('Registrando rotas de arquivos estaticos...')
 app.add_static_files('/assets', str(ASSETS_DIR))
 app.add_static_files('/demo/static', str(CURRENT_DIR / 'ui' / 'pages' / 'demo' / 'static'))
+log_ok('Arquivos estaticos registrados: /assets, /demo/static')
+
+log_separador()
 
 
 def apply_theme() -> None:
@@ -36,27 +49,33 @@ def render_redirect(path: str, message: str = 'Redirecionando...') -> None:
     ui.timer(0.1, lambda: ui.navigate.to(path), once=True)
 
 
-# --- ROTAS ---
+# ── ROTAS ────────────────────────────────────────────────────────────────────
+
 @ui.page('/')
 def home() -> None:
-    apply_theme()  # Aplica o tema na homepage
+    log_info('ROTA /  Homepage acessada')
+    apply_theme()
     render_homepage()
 
 @ui.page('/login')
 def login(profile: str = 'customer') -> None:
+    log_info(f'ROTA /login  Acessada (profile={profile})')
     auth = app.storage.user.get('auth')
     if auth:
+        log_info(f'  Usuario ja autenticado ({auth.get("email")}), redirecionando...')
         apply_theme()
         render_redirect('/cliente/dashboard' if auth.get('profile') == 'customer' else '/empresa/mapa')
         return
-    apply_theme()  # Aplica o tema na página de login
+    apply_theme()
     render_login(profile)
 
 
 @ui.page('/auth/confirm')
 def auth_confirm() -> None:
+    log_info('ROTA /auth/confirm  Confirmacao de magic link')
     auth = app.storage.user.get('auth')
     if auth:
+        log_info(f'  Usuario ja autenticado ({auth.get("email")}), redirecionando...')
         apply_theme()
         render_redirect('/cliente/dashboard' if auth.get('profile') == 'customer' else '/empresa/mapa')
         return
@@ -66,11 +85,13 @@ def auth_confirm() -> None:
 
 @ui.page('/demo/mapa')
 def demo_mapa() -> None:
+    log_info('ROTA /demo/mapa  Mapa demo RMR acessado')
     apply_theme()
     render_demo_mapa()
 
 @ui.page('/demo/apresentacao')
 def demo_apresentacao() -> None:
+    log_info('ROTA /demo/apresentacao  Pagina de apresentacao acessada')
     apply_theme()
     render_apresentacao()
 
@@ -78,7 +99,9 @@ def demo_apresentacao() -> None:
 @ui.page('/cliente/dashboard')
 def cliente_dashboard() -> None:
     auth = app.storage.user.get('auth')
+    log_info(f'ROTA /cliente/dashboard  Usuario={auth.get("email") if auth else "N/A"}')
     if not auth or auth.get('profile') != 'customer':
+        log_aviso('  Sem autenticacao ou perfil invalido, redirecionando para login')
         apply_theme()
         render_redirect('/login?profile=customer')
         return
@@ -89,7 +112,9 @@ def cliente_dashboard() -> None:
 @ui.page('/cliente/faturas')
 def cliente_faturas() -> None:
     auth = app.storage.user.get('auth')
+    log_info(f'ROTA /cliente/faturas  Usuario={auth.get("email") if auth else "N/A"}')
     if not auth or auth.get('profile') != 'customer':
+        log_aviso('  Sem autenticacao ou perfil invalido, redirecionando para login')
         apply_theme()
         render_redirect('/login?profile=customer')
         return
@@ -100,7 +125,9 @@ def cliente_faturas() -> None:
 @ui.page('/cliente/perfil')
 def cliente_perfil() -> None:
     auth = app.storage.user.get('auth')
+    log_info(f'ROTA /cliente/perfil  Usuario={auth.get("email") if auth else "N/A"}')
     if not auth or auth.get('profile') != 'customer':
+        log_aviso('  Sem autenticacao ou perfil invalido, redirecionando para login')
         apply_theme()
         render_redirect('/login?profile=customer')
         return
@@ -111,7 +138,9 @@ def cliente_perfil() -> None:
 @ui.page('/empresa/mapa')
 def empresa_mapa() -> None:
     auth = app.storage.user.get('auth')
+    log_info(f'ROTA /empresa/mapa  Usuario={auth.get("email") if auth else "N/A"}')
     if not auth or auth.get('profile') != 'company':
+        log_aviso('  Sem autenticacao ou perfil invalido, redirecionando para login')
         apply_theme()
         render_redirect('/login?profile=company')
         return
@@ -123,7 +152,9 @@ def empresa_mapa() -> None:
 @ui.page('/empresa/perfil')
 def empresa_perfil() -> None:
     auth = app.storage.user.get('auth')
+    log_info(f'ROTA /empresa/perfil  Usuario={auth.get("email") if auth else "N/A"}')
     if not auth or auth.get('profile') != 'company':
+        log_aviso('  Sem autenticacao ou perfil invalido, redirecionando para login')
         apply_theme()
         render_redirect('/login?profile=company')
         return
@@ -135,7 +166,9 @@ def empresa_perfil() -> None:
 @ui.page('/empresa/kanban')
 def empresa_kanban() -> None:
     auth = app.storage.user.get('auth')
+    log_info(f'ROTA /empresa/kanban  Usuario={auth.get("email") if auth else "N/A"}')
     if not auth or auth.get('profile') != 'company':
+        log_aviso('  Sem autenticacao ou perfil invalido, redirecionando para login')
         apply_theme()
         render_redirect('/login?profile=company')
         return
@@ -146,11 +179,13 @@ def empresa_kanban() -> None:
 
 @ui.page('/logout')
 def logout() -> None:
+    log_info('ROTA /logout  Usuario deslogado')
     app.storage.user.pop('auth', None)
     apply_theme()
     render_redirect('/login', 'Saindo da conta...')
 
 
+log_info('Iniciando servidor NiceGUI na porta 8080...')
 ui.run(
     title="Radar Solar - Inteligência Energética",
     port=8080,

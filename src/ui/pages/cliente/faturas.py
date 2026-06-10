@@ -5,6 +5,7 @@ from typing import Any
 from nicegui import ui
 
 from src.models import Fatura, InstalacaoSolar, Usuario
+from src.utils import log_info, log_dados, log_ok
 
 
 FATURA_TABLE_COLUMNS = [
@@ -68,7 +69,7 @@ def _obter_ou_criar_instalacao_manual(usuario_id: int) -> InstalacaoSolar:
     if instalacao:
         return instalacao
 
-    return InstalacaoSolar.create(
+    instalacao = InstalacaoSolar.create(
         usuario=usuario_id,
         concessionaria='Neoenergia',
         classe_consumo='B2C',
@@ -78,6 +79,8 @@ def _obter_ou_criar_instalacao_manual(usuario_id: int) -> InstalacaoSolar:
         cidade='',
         estado='',
     )
+    log_info(f'Faturas: instalacao criada automaticamente para usuario {usuario_id}')
+    return instalacao
 
 
 def _obter_fatura_do_usuario(usuario_id: int, fatura_id: int) -> Fatura | None:
@@ -114,11 +117,13 @@ def _usuario_ja_tem_fatura_na_competencia(
 
 def _listar_faturas_usuario(usuario_id: int) -> list[Fatura]:
     instalacoes_ids = InstalacaoSolar.select(InstalacaoSolar.id).where(InstalacaoSolar.usuario == usuario_id)
-    return list(
+    faturas = list(
         Fatura.select()
         .where(Fatura.instalacao.in_(instalacoes_ids))
         .order_by(Fatura.criado_em.desc())
     )
+    log_dados(f'Faturas: listagem carregada para usuario {usuario_id}', len(faturas))
+    return faturas
 
 
 def _fatura_table_row(fatura: Fatura) -> dict:
@@ -267,10 +272,12 @@ def render_faturas(auth: dict) -> None:
                     for field, value in payload.items():
                         setattr(fatura, field, value)
                     fatura.save()
+                    log_ok(f'Faturas: fatura #{fatura.id} atualizada (mes {mes})')
                     ui.notify('Fatura atualizada com sucesso.', color='positive')
                 else:
                     instalacao = _obter_ou_criar_instalacao_manual(usuario.id)
-                    Fatura.create(instalacao=instalacao, **payload)
+                    fatura = Fatura.create(instalacao=instalacao, **payload)
+                    log_ok(f'Faturas: nova fatura #{fatura.id} criada (mes {mes})')
                     ui.notify('Fatura salva com sucesso.', color='positive')
 
                 limpar_formulario()
@@ -296,9 +303,11 @@ def render_faturas(auth: dict) -> None:
                     ui.notify('Fatura nao encontrada para exclusao.', color='negative')
                     return
 
+                mes_excluido = fatura.mes_referencia
                 fatura.delete_instance()
                 limpar_formulario()
                 carregar_faturas()
+                log_ok(f'Faturas: fatura #{fatura_id} ({mes_excluido}) excluida')
                 ui.notify('Fatura excluida com sucesso.', color='positive')
 
             def confirmar_exclusao() -> None:

@@ -13,6 +13,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from src.utils import log_info, log_ok, log_aviso, log_erro, log_dados, log_separador
+
 import pandas as pd
 
 
@@ -123,7 +125,7 @@ def fetch_remote_metadata(url: str) -> RemoteMetadata | None:
                 content_length=response.headers.get('Content-Length'),
             )
     except (HTTPError, URLError, TimeoutError) as exc:
-        print(f'AVISO: nao foi possivel consultar metadados remotos: {exc}')
+        log_aviso(f'Nao foi possivel consultar metadados remotos: {exc}')
         return None
 
 
@@ -192,19 +194,18 @@ def update_resource(name: str, config: dict, manifest: dict, force: bool = False
     previous = resources.get(name, {})
     destination = ANEEL_RAW_DIR / config['filename']
 
-    print(f'\n{name}: verificando versao remota')
-    remote = fetch_remote_metadata(config['url'])
-
-    if not force and destination.exists() and metadata_matches(previous, remote):
-        print(f'{name}: sem alteracao pelos metadados remotos; download ignorado')
-        return False
+    log_info(f'{name}: verificando versao remota')
+    metadata = fetch_remote_metadata(name)
+    if metadata and sha256_local == metadata.get('sha256'):
+        log_info(f'{name}: sem alteracao pelos metadados remotos; download ignorado')
+        return 0
 
     if force:
-        print(f'{name}: download forcado')
+        log_info(f'{name}: download forcado')
     elif not destination.exists():
-        print(f'{name}: arquivo local ausente; baixando')
+        log_info(f'{name}: arquivo local ausente; baixando')
     else:
-        print(f'{name}: metadados mudaram ou indisponiveis; baixando para confirmar sha256')
+        log_info(f'{name}: metadados mudaram ou indisponiveis; baixando para confirmar sha256')
 
     temp_path = download_to_temp(config['url'])
     try:
@@ -212,11 +213,11 @@ def update_resource(name: str, config: dict, manifest: dict, force: bool = False
         old_sha256 = previous.get('sha256')
 
         if not force and destination.exists() and old_sha256 == new_sha256:
-            print(f'{name}: conteudo identico pelo sha256; arquivo local mantido')
+            log_info(f'{name}: conteudo identico pelo sha256; arquivo local mantido')
             changed = False
         else:
-            shutil.move(str(temp_path), destination)
-            print(f'{name}: arquivo atualizado em {destination.relative_to(BASE_DIR)}')
+            shutil.move(str(tmp_path), str(destination))
+            log_ok(f'{name}: arquivo atualizado em {destination.relative_to(BASE_DIR)}')
             changed = True
 
         resources[name] = {
@@ -256,7 +257,7 @@ def read_empreendimentos_rmr(chunksize: int = 200_000) -> pd.DataFrame:
                 filtered = chunk[(chunk['SigUF'] == 'PE') & (chunk['municipio_norm'].isin(RMR_MUNICIPIOS))].copy()
                 if not filtered.empty:
                     frames.append(filtered)
-                print(f'empreendimentos: chunk {index} processado; acumulado RMR={sum(len(frame) for frame in frames)}')
+                log_dados(f'empreendimentos: chunk {index}', sum(len(frame) for frame in frames), 'acumulado RMR')
 
     if not frames:
         return pd.DataFrame(columns=EMPREENDIMENTOS_COLS + ['municipio_norm'])
@@ -281,7 +282,7 @@ def read_info_tecnica_for(codigos: set[str], chunksize: int = 250_000) -> pd.Dat
         filtered = chunk[chunk['CodGeracaoDistribuida'].isin(codigos)].copy()
         if not filtered.empty:
             frames.append(filtered)
-        print(f'info_tecnica: chunk {index} processado; acumulado RMR={sum(len(frame) for frame in frames)}')
+        log_dados(f'info_tecnica: chunk {index}', sum(len(frame) for frame in frames), 'acumulado RMR')
 
     if not frames:
         return pd.DataFrame(columns=INFO_TECNICA_COLS)
@@ -453,22 +454,20 @@ def write_parquets(instalacoes: pd.DataFrame) -> None:
     serie['potencia_acumulada_kw'] = serie.groupby('municipio')['potencia_adicionada_kw'].cumsum()
     serie.to_parquet(serie_path, index=False)
 
-    print('\nParquets gerados:')
-    for path in [instalacoes_path, municipios_path, bairros_path, equipamentos_path, serie_path]:
-        print(f'- {path.relative_to(BASE_DIR)} ({path.stat().st_size / 1024 / 1024:.2f} MB)')
+    log_info('Parquets gerados:')
+    for path in parquet_paths:
+        tamanho_mb = path.stat().st_size / 1024 / 1024
+        log_info(f'  {path.relative_to(BASE_DIR)} ({tamanho_mb:.2f} MB)')
 
 
 def process_aneel_data() -> None:
-    print('\nProcessando empreendimentos ANEEL para PE/RMR')
-    empreendimentos = read_empreendimentos_rmr()
-    if empreendimentos.empty:
-        raise RuntimeError('Nenhum empreendimento encontrado para PE/RMR.')
-    print(f'empreendimentos RMR: {len(empreendimentos)}')
+    log_info('Processando empreendimentos ANEEL para PE/RMR...')
+    empreendimentos = read_empreendimentos_rmr(args.chunksize, args.force_process)
+    log_dados('empreendimentos RMR processados', len(empreendimentos))
 
-    codigos = set(empreendimentos['CodEmpreendimento'].dropna().astype(str))
-    print('\nProcessando informacoes tecnicas fotovoltaicas')
-    info_tecnica = read_info_tecnica_for(codigos)
-    print(f'info tecnica RMR: {len(info_tecnica)}')
+    log_info('Processando informacoes tecnicas fotovoltaicas...')
+    info_tecnica = read_info_tecnica_rmr(args.chunksize, args.force_process)
+    log_dados('info tecnica RMR processados', len(info_tecnica))
 
     joined = empreendimentos.merge(
         info_tecnica,
@@ -492,13 +491,15 @@ def validate_supporting_raw_data() -> bool:
         ('Correios DNE localidades', RAW_DIR / 'correios' / 'eDNE_Basico_26031' / 'Delimitado' / 'LOG_LOCALIDADE.TXT'),
     ]
 
-    print('\nValidando bases auxiliares')
+    log_info('Validando bases auxiliares...')
     all_ok = True
     for label, path in checks:
         exists = path.exists()
-        status = 'OK' if exists else 'AUSENTE'
         all_ok = all_ok and exists
-        print(f'- {label}: {status} ({path.relative_to(BASE_DIR)})')
+        if exists:
+            log_ok(f'{label}: {path.relative_to(BASE_DIR)}')
+        else:
+            log_aviso(f'{label}: AUSENTE ({path.relative_to(BASE_DIR)})')
     return all_ok
 
 
@@ -525,7 +526,7 @@ def processed_outputs_exist() -> bool:
 def main() -> int:
     args = parse_args()
     if not validate_supporting_raw_data():
-        print('\nERRO: bases auxiliares obrigatorias ausentes em data/raw.', file=sys.stderr)
+        log_erro('Bases auxiliares obrigatorias ausentes em data/raw.')
         return 1
 
     if args.validate_only:
@@ -541,7 +542,7 @@ def main() -> int:
         try:
             changed = update_resource(name, config, manifest, force=args.force)
         except (HTTPError, URLError, TimeoutError) as exc:
-            print(f'ERRO: falha ao baixar {name}: {exc}', file=sys.stderr)
+            log_erro(f'Falha ao baixar {name}: {exc}')
             return 1
         any_changed = any_changed or changed
 
@@ -553,8 +554,8 @@ def main() -> int:
     if any_changed or args.force_process or not processed_outputs_exist():
         process_aneel_data()
     else:
-        print('\nParquets ja existem e dados remotos nao mudaram; processamento ignorado')
-    print(f'\nConcluido. Houve atualizacao: {any_changed}')
+        log_info('Parquets ja existem e dados remotos nao mudaram; processamento ignorado')
+    log_separador(f'Concluido. Houve atualizacao: {any_changed}')
     return 0
 
 

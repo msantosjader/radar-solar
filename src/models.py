@@ -1,6 +1,7 @@
 from peewee import Model, CharField, FloatField, ForeignKeyField, DateTimeField, IntegerField, DateField
 from datetime import datetime
 from src.database import db
+from src.utils import log_info, log_ok, log_aviso
 
 
 class BaseModel(Model):
@@ -119,9 +120,10 @@ class CnpjCache(BaseModel):
 
 
 def criar_tabelas() -> None:
-    """Executa a criação física das tabelas dentro do ficheiro SQLite"""
+    """Cria as tabelas no SQLite e executa migracoes pendentes"""
     with db:
         db.create_tables([Usuario, EmpresaPerfil, InstalacaoSolar, Fatura, Lead, CnpjCache])
+        log_ok('Tabelas criadas/verificadas: Usuario, EmpresaPerfil, InstalacaoSolar, Fatura, Lead, CnpjCache')
         migrar_lead_empresa_responsavel_nullable()
 
 
@@ -134,7 +136,7 @@ def _table_exists(table_name: str) -> bool:
 
 
 def migrar_lead_empresa_responsavel_nullable() -> None:
-    """Permite que leads nasçam abertos, sem integrador responsável."""
+    """Permite que leads nasçam abertos, sem integrador responsavel."""
     if not _table_exists('lead'):
         return
 
@@ -149,6 +151,7 @@ def migrar_lead_empresa_responsavel_nullable() -> None:
             f'Migracao de lead interrompida: tabela temporaria {tabela_antiga!r} ja existe.'
         )
 
+    log_info('Migracao: tornando empresa_responsavel_id nullable na tabela Lead...')
     with db.atomic():
         db.execute_sql(f'ALTER TABLE lead RENAME TO {tabela_antiga}')
         db.create_tables([Lead])
@@ -165,3 +168,4 @@ def migrar_lead_empresa_responsavel_nullable() -> None:
             FROM lead_old_empresa_not_null
         ''')
         db.execute_sql(f'DROP TABLE {tabela_antiga}')
+        log_ok('Migracao de Lead concluida: empresa_responsavel_id agora aceita NULL')

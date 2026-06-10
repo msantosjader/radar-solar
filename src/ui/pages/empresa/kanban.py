@@ -7,7 +7,7 @@ from nicegui import ui
 from src.auth import PerfilConflitanteError, validar_email_para_profile
 from src.database import db
 from src.models import InstalacaoSolar, Lead, Usuario
-from src.utils import _format_datetime_br
+from src.utils import _format_datetime_br, log_info, log_dados, log_ok
 
 
 STATUS_KANBAN = ['Novo', 'Em Contato', 'Concluído']
@@ -40,6 +40,8 @@ def _obter_leads_por_status(empresa_id: int) -> dict[str, list[Lead]]:
     )
     for lead in leads:
         leads_por_status.setdefault(lead.status, []).append(lead)
+    total = sum(len(v) for v in leads_por_status.values())
+    log_dados(f'Kanban B2B: leads carregados para empresa {empresa_id}', total)
     return leads_por_status
 
 
@@ -48,6 +50,7 @@ def _mudar_status(lead: Lead, novo_status: str) -> None:
         raise ValueError('Status invalido para o Kanban.')
     lead.status = novo_status
     lead.save()
+    log_ok(f'Kanban: lead #{lead.id} movido para {novo_status}')
 
 
 def _obter_ou_criar_cliente_b2c(email: str, nome: str, telefone: str | None) -> tuple[Usuario, bool]:
@@ -94,6 +97,7 @@ def _criar_lead_manual(
             descricao_servico=descricao or 'Lead cadastrado manualmente pelo integrador.',
             status='Novo',
         )
+    log_ok(f'Kanban: lead manual #{lead.id} criado (cliente: {email}, empresa: {empresa_id})')
     return lead, criado
 
 

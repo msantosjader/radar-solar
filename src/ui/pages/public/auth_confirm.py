@@ -2,6 +2,7 @@ from nicegui import app, ui
 
 from src.auth import PerfilConflitanteError, criar_ou_atualizar_usuario, rota_inicial, serializar_sessao
 from src.ui.pages.public import inject_firebase_auth, inject_public_styles
+from src.utils import log_info, log_ok
 
 
 def render_auth_confirm() -> None:
@@ -40,6 +41,7 @@ def render_auth_confirm() -> None:
                 ui.notify(str(exc), type='negative')
                 ui.navigate.to('/login')
                 return
+            log_ok(f'Auth confirm: {usuario.email} autenticado com sucesso (perfil={payload.get("profile")})')
             app.storage.user['auth'] = serializar_sessao(usuario, payload.get('profile', 'customer'))
             ui.navigate.to(rota_inicial(payload.get('profile', 'customer')))
 

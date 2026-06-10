@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.models import Usuario
+from src.utils import log_aviso, log_info, log_ok
 
 
 PROFILE_TO_TIPO = {
@@ -57,6 +58,10 @@ def validar_email_para_profile(email: str, profile: str) -> str:
     if usuario_existente and usuario_existente.tipo_perfil != tipo_perfil:
         perfil_existente = TIPO_TO_LABEL.get(usuario_existente.tipo_perfil, usuario_existente.tipo_perfil)
         perfil_solicitado = TIPO_TO_LABEL.get(tipo_perfil, tipo_perfil)
+        log_aviso(
+            f'Conflito de perfil: email {email} ja cadastrado como {perfil_existente}, '
+            f'tentativa de acesso como {perfil_solicitado}'
+        )
         raise PerfilConflitanteError(
             f'Este e-mail ja esta cadastrado como {perfil_existente}. '
             f'Para acessar como {perfil_solicitado}, use outro e-mail.'
@@ -69,6 +74,8 @@ def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome
     email = validar_email_para_profile(email, profile)
     tipo_perfil = PROFILE_TO_TIPO[profile]
     nome_base = (nome or '').strip() or email.split('@', 1)[0]
+
+    log_info(f'Auth: criando/atualizando usuario {email} (perfil={profile})')
 
     usuario, created = Usuario.get_or_create(
         email=email,
@@ -92,6 +99,13 @@ def criar_ou_atualizar_usuario(firebase_uid: str, email: str, profile: str, nome
 
     if updated:
         usuario.save()
+
+    if created:
+        log_ok(f'Auth: novo usuario criado (id={usuario.id})')
+    elif updated:
+        log_ok(f'Auth: usuario atualizado (id={usuario.id})')
+    else:
+        log_info(f'Auth: usuario ja existente e atualizado (id={usuario.id})')
 
     return usuario, created
 

@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+from src.utils import log_info, log_ok, log_erro, log_separador
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = BASE_DIR / 'scripts'
@@ -15,18 +16,15 @@ def _run(script_name: str, description: str, *args: str) -> int:
     script_path = SCRIPTS_DIR / script_name
     args = [a for a in args if a]
     cmd = [sys.executable, str(script_path), *args]
-    print(f'\n{"=" * 60}')
-    print(f'>>> {description}')
-    args_str = ' '.join(args)
-    print(f'>>> {script_name} {args_str}')
-    print(f'{"=" * 60}\n')
+    log_separador(description)
+    log_info(f'Script: {script_name} {" ".join(args)}')
     t0 = time.time()
     result = subprocess.run(cmd)
     elapsed = time.time() - t0
     if result.returncode != 0:
-        print(f'\nERRO: {script_name} falhou (exit={result.returncode}) apos {elapsed:.0f}s', file=sys.stderr)
+        log_erro(f'{script_name} falhou (exit={result.returncode}) apos {elapsed:.0f}s')
     else:
-        print(f'\nOK: {script_name} concluido em {elapsed:.0f}s')
+        log_ok(f'{script_name} concluido em {elapsed:.0f}s')
     return result.returncode
 
 
@@ -108,11 +106,9 @@ def main() -> int:
         if code != 0:
             return code
     else:
-        print('\n[skip] CNPJ enrichment pulado (--skip-cnpj).')
+        log_info('[skip] CNPJ enrichment pulado (--skip-cnpj).')
 
-    print(f'\n{"=" * 60}')
-    print('Pipeline completo concluido com sucesso!')
-    print(f'{"=" * 60}')
+    log_separador('Pipeline completo concluido com sucesso!')
     return 0
 
 
