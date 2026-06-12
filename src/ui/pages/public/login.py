@@ -4,6 +4,7 @@ from nicegui import ui
 
 from src.auth import PerfilConflitanteError, validar_email_para_profile
 from src.ui.pages.public import inject_firebase_auth, inject_public_styles
+import src.utils import log_info
 
 
 PROFILE_CONFIG = {
