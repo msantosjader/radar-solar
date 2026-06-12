@@ -14,7 +14,7 @@ from src.ui.pages.empresa.perfil import render_perfil_empresa
 from src.ui.pages.public.auth_confirm import render_auth_confirm
 from src.ui.pages.public.homepage import render_homepage
 from src.ui.pages.public.login import render_login
-from src.utils import log_info, log_ok, log_erro, log_separador
+from src.utils import log_info, log_ok, log_erro, log_aviso, log_separador
 
 # ── INICIALIZAÇÃO ───────────────────────────────────────────────────────────
 
